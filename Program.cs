@@ -87,7 +87,7 @@ internal sealed class MainForm : Form
         settingsFile = Path.Combine(settingsFolder, "settings.json");
         settings = LoadSettings();
 
-        Text = "Ripgrep Search v8 (C#)";
+        Text = "Ripgrep Search v8";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(900, 670);
         MinimumSize = new Size(780, 560);
