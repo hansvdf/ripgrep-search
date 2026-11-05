@@ -53,11 +53,52 @@ internal sealed class AppSettings
     public List<string> FolderHistory { get; set; } = [];
     public List<string> SearchHistory { get; set; } = [];
     public bool ShowCommand { get; set; } = true;
+    public bool ShowSearchOptions { get; set; } = true;
+    public int BeforeContext { get; set; } = 0;
+    public int AfterContext { get; set; } = 0;
     public bool UseRipgrepAll { get; set; } = false;
+    public bool SortEnabled { get; set; } = false;
+    public string SortBy { get; set; } = "path";
+    public bool SortDescending { get; set; } = false;
+}
+
+internal sealed class SortGroupBox : GroupBox
+{
+    public SortGroupBox()
+    {
+        SetStyle(
+            ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw,
+            true);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var captionBounds = new Rectangle(
+            new Point(LogicalToDeviceUnits(8), 0),
+            TextRenderer.MeasureText(e.Graphics, Text, Font));
+        int borderTop = captionBounds.Height / 2;
+        int gap = LogicalToDeviceUnits(2);
+
+        using var borderPen = new Pen(Color.DarkGray);
+        e.Graphics.DrawLines(borderPen, new Point[]
+        {
+            new Point(captionBounds.Left - gap, borderTop),
+            new Point(0, borderTop),
+            new Point(0, Height - 1),
+            new Point(Width - 1, Height - 1),
+            new Point(Width - 1, borderTop),
+            new Point(captionBounds.Right + gap, borderTop)
+        });
+        TextRenderer.DrawText(e.Graphics, Text, Font, captionBounds, ForeColor);
+    }
 }
 
 internal sealed class MainForm : Form
 {
+    private const int MenuBarHeight = 24;
+    private const int SearchOptionsHeight = 90;
+
     private readonly ComboBox folderComboBox = new();
     private readonly ComboBox searchComboBox = new();
     private readonly Button browseButton = new();
@@ -65,12 +106,19 @@ internal sealed class MainForm : Form
     private readonly NumericUpDown beforeNumeric = new();
     private readonly NumericUpDown afterNumeric = new();
     private readonly CheckBox showCommandCheckBox = new();
+    private readonly CheckBox showSearchOptionsCheckBox = new();
+    private readonly Panel searchOptionsPanel = new();
     private readonly CheckBox useRipgrepAllCheckBox = new();
+    private readonly CheckBox sortCheckBox = new();
+    private readonly ComboBox sortByComboBox = new();
+    private readonly ComboBox sortOrderComboBox = new();
     private readonly Label commandLabel = new();
     private readonly TextBox commandTextBox = new();
     private readonly Label outputLabel = new();
     private readonly RichTextBox outputTextBox = new();
     private readonly Label statusLabel = new();
+    private readonly ToolStripMenuItem exportMenuItem = new("&Export Results...") { Enabled = false };
+    private SearchReport? searchReport;
 
     private readonly Dictionary<int, string> fileLineMap = new();
     private readonly string settingsFolder;
@@ -87,10 +135,10 @@ internal sealed class MainForm : Form
         settingsFile = Path.Combine(settingsFolder, "settings.json");
         settings = LoadSettings();
 
-        Text = "Ripgrep Search v8";
+        Text = "Ripgrep Search";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(900, 670);
-        MinimumSize = new Size(780, 560);
+        ClientSize = new Size(900, 710 + MenuBarHeight);
+        MinimumSize = new Size(780, 600 + MenuBarHeight);
         Font = new Font("Segoe UI", 9F);
 
         try
@@ -104,15 +152,28 @@ internal sealed class MainForm : Form
 
         BuildInterface();
         LoadHistory();
-        UpdateCommandVisibility();
+        UpdateSearchVisibility();
 
         AcceptButton = searchButton;
         FormClosing += (_, _) => SaveCurrentSettings();
-        Resize += (_, _) => UpdateCommandVisibility();
+        Resize += (_, _) => UpdateSearchVisibility();
     }
 
     private void BuildInterface()
     {
+        var menuStrip = new MenuStrip { AutoSize = false, Height = MenuBarHeight };
+        var fileMenu = new ToolStripMenuItem("&File");
+        exportMenuItem.ShortcutKeys = Keys.Control | Keys.S;
+        exportMenuItem.Click += (_, _) => ExportResults();
+        fileMenu.DropDownItems.Add(exportMenuItem);
+        menuStrip.Items.Add(fileMenu);
+        var helpMenu = new ToolStripMenuItem("&Help");
+        var aboutMenuItem = new ToolStripMenuItem("&About");
+        aboutMenuItem.Click += (_, _) => ShowAboutDialog();
+        helpMenu.DropDownItems.Add(aboutMenuItem);
+        menuStrip.Items.Add(helpMenu);
+        MainMenuStrip = menuStrip;
+
         var folderLabel = new Label
         {
             Text = "Folder:",
@@ -149,53 +210,131 @@ internal sealed class MainForm : Form
         searchButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         searchButton.Click += async (_, _) => await RunSearchAsync();
 
+        showSearchOptionsCheckBox.Text = "Show search options";
+        showSearchOptionsCheckBox.Location = new Point(15, 100);
+        showSearchOptionsCheckBox.AutoSize = true;
+        showSearchOptionsCheckBox.Checked = settings.ShowSearchOptions;
+        showSearchOptionsCheckBox.CheckedChanged += (_, _) =>
+        {
+            UpdateSearchVisibility();
+            SaveCurrentSettings();
+        };
+
+        searchOptionsPanel.Location = new Point(0, 136);
+        searchOptionsPanel.Size = new Size(900, SearchOptionsHeight);
+        searchOptionsPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        searchOptionsPanel.AccessibleName = "Search options";
+
         var beforeLabel = new Label
         {
             Text = "Before:",
-            Location = new Point(15, 103),
+            Location = new Point(15, 7),
             AutoSize = true
         };
 
-        beforeNumeric.Location = new Point(80, 98);
+        beforeNumeric.Location = new Point(80, 2);
         beforeNumeric.Size = new Size(65, 27);
         beforeNumeric.Minimum = 0;
         beforeNumeric.Maximum = 100;
+        beforeNumeric.Value = Math.Clamp(settings.BeforeContext, (int)beforeNumeric.Minimum, (int)beforeNumeric.Maximum);
 
         var afterLabel = new Label
         {
             Text = "After:",
-            Location = new Point(165, 103),
+            Location = new Point(165, 7),
             AutoSize = true
         };
 
-        afterNumeric.Location = new Point(215, 98);
+        afterNumeric.Location = new Point(215, 2);
         afterNumeric.Size = new Size(65, 27);
         afterNumeric.Minimum = 0;
         afterNumeric.Maximum = 100;
+        afterNumeric.Value = Math.Clamp(settings.AfterContext, (int)afterNumeric.Minimum, (int)afterNumeric.Maximum);
 
         showCommandCheckBox.Text = "Show command";
-        showCommandCheckBox.Location = new Point(310, 100);
+        showCommandCheckBox.Location = new Point(180, 100);
         showCommandCheckBox.AutoSize = true;
+        showCommandCheckBox.Checked = settings.ShowCommand;
         showCommandCheckBox.CheckedChanged += (_, _) =>
         {
-            UpdateCommandVisibility();
+            UpdateSearchVisibility();
             SaveCurrentSettings();
         };
 
         useRipgrepAllCheckBox.Text = "Search Office/PDF files with rga";
-        useRipgrepAllCheckBox.Location = new Point(445, 100);
+        useRipgrepAllCheckBox.Location = new Point(310, 4);
         useRipgrepAllCheckBox.AutoSize = true;
+        useRipgrepAllCheckBox.Checked = settings.UseRipgrepAll;
         useRipgrepAllCheckBox.CheckedChanged += (_, _) =>
         {
             UpdateCommandLabels();
             SaveCurrentSettings();
         };
 
+        var sortingGroup = new SortGroupBox
+        {
+            Text = "Sort",
+            Location = new Point(15, 30),
+            Size = new Size(430, 50),
+            AccessibleName = "Sorting options"
+        };
+
+        sortCheckBox.Text = string.Empty;
+        sortCheckBox.AccessibleName = "Enable sorting";
+        sortCheckBox.Location = new Point(10, 23);
+        sortCheckBox.AutoSize = true;
+        sortCheckBox.Checked = settings.SortEnabled;
+
+        sortByComboBox.Location = new Point(64, 19);
+        sortByComboBox.Size = new Size(80, 27);
+        sortByComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        sortByComboBox.AccessibleName = "Sort by";
+        sortByComboBox.Items.AddRange(["path", "modified", "accessed", "created"]);
+        int sortByIndex = sortByComboBox.Items.IndexOf(settings.SortBy);
+        sortByComboBox.SelectedIndex = sortByIndex >= 0 ? sortByIndex : 0;
+
+        var sortOrderLabel = new Label
+        {
+            Text = "Order:",
+            Location = new Point(150, 26),
+            AutoSize = true
+        };
+        sortOrderComboBox.Location = new Point(200, 19);
+        sortOrderComboBox.Size = new Size(90, 27);
+        sortOrderComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        sortOrderComboBox.AccessibleName = "Sort order";
+        sortOrderComboBox.Items.AddRange(["Ascending", "Descending"]);
+        sortOrderComboBox.SelectedIndex = settings.SortDescending ? 1 : 0;
+        sortingGroup.Controls.AddRange([
+            sortCheckBox, sortByComboBox, sortOrderLabel, sortOrderComboBox
+        ]);
+        searchOptionsPanel.Controls.AddRange([
+            beforeLabel, beforeNumeric, afterLabel, afterNumeric,
+            useRipgrepAllCheckBox, sortingGroup
+        ]);
+        UpdateSortControls();
+
+        // Restore all sorting values before attaching handlers that save settings.
+        sortCheckBox.CheckedChanged += (_, _) =>
+        {
+            UpdateSortControls();
+            UpdateCommandPreview();
+            SaveCurrentSettings();
+        };
+        sortByComboBox.SelectedIndexChanged += (_, _) =>
+        {
+            UpdateCommandPreview();
+            SaveCurrentSettings();
+        };
+        sortOrderComboBox.SelectedIndexChanged += (_, _) =>
+        {
+            UpdateCommandPreview();
+            SaveCurrentSettings();
+        };
+
         commandLabel.Text = "rg command:";
-        commandLabel.Location = new Point(15, 142);
         commandLabel.AutoSize = true;
 
-        commandTextBox.Location = new Point(15, 164);
         commandTextBox.Size = new Size(870, 50);
         commandTextBox.Multiline = true;
         commandTextBox.ReadOnly = true;
@@ -203,10 +342,8 @@ internal sealed class MainForm : Form
         commandTextBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
         outputLabel.Text = "Output (double-click a blue filename to open it):";
-        outputLabel.Location = new Point(15, 227);
         outputLabel.AutoSize = true;
 
-        outputTextBox.Location = new Point(15, 249);
         outputTextBox.Size = new Size(870, 380);
         outputTextBox.ReadOnly = true;
         outputTextBox.WordWrap = false;
@@ -219,17 +356,124 @@ internal sealed class MainForm : Form
         outputTextBox.MouseMove += OutputTextBox_MouseMove;
 
         statusLabel.Text = "Ready";
-        statusLabel.Location = new Point(15, 642);
+        statusLabel.Location = new Point(15, 682);
         statusLabel.AutoSize = true;
         statusLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
 
         Controls.AddRange([
             folderLabel, folderComboBox, browseButton,
             searchLabel, searchComboBox, searchButton,
-            beforeLabel, beforeNumeric, afterLabel, afterNumeric,
-            showCommandCheckBox, useRipgrepAllCheckBox, commandLabel, commandTextBox,
+            showSearchOptionsCheckBox, showCommandCheckBox, searchOptionsPanel,
+            commandLabel, commandTextBox,
             outputLabel, outputTextBox, statusLabel
         ]);
+
+        foreach (Control control in Controls)
+            control.Top += MenuBarHeight;
+
+        Controls.Add(menuStrip);
+
+        folderComboBox.TextChanged += (_, _) => UpdateCommandPreview();
+        searchComboBox.TextChanged += (_, _) => UpdateCommandPreview();
+        beforeNumeric.ValueChanged += (_, _) =>
+        {
+            UpdateCommandPreview();
+            SaveCurrentSettings();
+        };
+        afterNumeric.ValueChanged += (_, _) =>
+        {
+            UpdateCommandPreview();
+            SaveCurrentSettings();
+        };
+    }
+
+    private void ExportResults()
+    {
+        if (searchReport is null || searchReport.Spans.Count == 0)
+            return;
+
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Export search results",
+            Filter = "HTML report (*.html)|*.html|Markdown report (*.md)|*.md",
+            FileName = "RipgrepSearch-results",
+            AddExtension = true,
+            OverwritePrompt = true,
+            RestoreDirectory = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        try
+        {
+            string extension = Path.GetExtension(dialog.FileName);
+            bool markdown = extension.Equals(".md", StringComparison.OrdinalIgnoreCase);
+            if (!markdown && !extension.Equals(".html", StringComparison.OrdinalIgnoreCase)
+                && !extension.Equals(".htm", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowError("Please use .html or .md for the exported report.");
+                return;
+            }
+
+            string report = markdown
+                ? ResultsExporter.ToMarkdown(searchReport)
+                : ResultsExporter.ToHtml(searchReport);
+            File.WriteAllText(dialog.FileName, report, new UTF8Encoding(false));
+            MessageBox.Show(this, $"Results exported to:\r\n{dialog.FileName}",
+                "Export Results", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            ShowError($"The results could not be exported:\r\n{ex.Message}");
+        }
+    }
+
+    private void ShowAboutDialog()
+    {
+        using var iconImage = (Icon ?? SystemIcons.Application).ToBitmap();
+        using var dialog = new Form
+        {
+            Text = "About",
+            Icon = Icon,
+            Font = Font,
+            AutoScaleDimensions = new SizeF(7F, 15F),
+            AutoScaleMode = AutoScaleMode.Font,
+            ClientSize = new Size(180, 120),
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false
+        };
+
+        var iconPictureBox = new PictureBox
+        {
+            Image = iconImage,
+            Location = new Point(10, 10),
+            Size = new Size(48, 48),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            AccessibleName = "Ripgrep Search icon",
+            TabStop = false
+        };
+        var versionLabel = new Label
+        {
+            Text = $"Ripgrep Search\r\nVersion {Application.ProductVersion.Split('+')[0]}",
+            Location = new Point(85, 15),
+            AutoSize = true
+        };
+        var okButton = new Button
+        {
+            Text = "OK",
+            DialogResult = DialogResult.OK,
+            Location = new Point(100, 75),
+            Size = new Size(70, 29),
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+        };
+
+        dialog.Controls.AddRange([iconPictureBox, versionLabel, okButton]);
+        dialog.AcceptButton = okButton;
+        dialog.CancelButton = okButton;
+        dialog.ShowDialog(this);
     }
 
     private void LoadHistory()
@@ -255,8 +499,6 @@ internal sealed class MainForm : Form
         foreach (string search in settings.SearchHistory.Take(20))
             searchComboBox.Items.Add(search);
 
-        showCommandCheckBox.Checked = settings.ShowCommand;
-        useRipgrepAllCheckBox.Checked = settings.UseRipgrepAll;
         UpdateCommandLabels();
     }
 
@@ -299,7 +541,6 @@ internal sealed class MainForm : Form
         }
 
         bool useRipgrepAll = useRipgrepAllCheckBox.Checked;
-        string executableName = useRipgrepAll ? "rga" : "rg";
         string? searchExecutablePath = useRipgrepAll
             ? FindExecutable("rga.exe") ?? FindExecutable("rga")
             : FindExecutable("rg.exe") ?? FindExecutable("rg");
@@ -312,10 +553,10 @@ internal sealed class MainForm : Form
             return;
         }
 
-        int before = (int)beforeNumeric.Value;
-        int after = (int)afterNumeric.Value;
-        List<string> arguments = BuildArguments(searchPattern, folder, before, after);
-        commandTextBox.Text = BuildDisplayCommand(executableName, arguments);
+        List<string> arguments = BuildCurrentArguments();
+        UpdateCommandPreview();
+        searchReport = new SearchReport(
+            Path.GetFullPath(folder), searchPattern, commandTextBox.Text, DateTimeOffset.Now);
 
         UpdateHistory(folder, searchPattern);
         SaveCurrentSettings();
@@ -359,36 +600,47 @@ internal sealed class MainForm : Form
                     statusLabel.Text = $"Search completed. {matchCount} matching line(s) found.";
                     break;
                 case 1:
-                    outputTextBox.ForeColor = Color.White;
-                    outputTextBox.Text = "No matches found.";
+                    WritePlainOutput("No matches found.");
                     statusLabel.Text = "Search completed. No matches found.";
                     break;
                 default:
-                    outputTextBox.ForeColor = Color.White;
-                    outputTextBox.Text = string.IsNullOrWhiteSpace(error)
+                    WritePlainOutput(string.IsNullOrWhiteSpace(error)
                         ? $"Search failed with exit code {process.ExitCode}."
-                        : error;
+                        : error);
                     statusLabel.Text = $"Search failed with exit code {process.ExitCode}.";
                     break;
             }
         }
         catch (Exception ex)
         {
-            outputTextBox.ForeColor = Color.White;
-            outputTextBox.Text = ex.Message;
+            WritePlainOutput(ex.Message);
             statusLabel.Text = "Search failed.";
         }
         finally
         {
+            searchReport.Status = statusLabel.Text;
             SetBusy(false);
         }
+    }
+
+    private List<string> BuildCurrentArguments()
+    {
+        return BuildArguments(
+            searchComboBox.Text,
+            folderComboBox.Text.Trim(),
+            (int)beforeNumeric.Value,
+            (int)afterNumeric.Value,
+            sortCheckBox.Checked ? sortByComboBox.Text : null,
+            sortOrderComboBox.SelectedIndex == 1);
     }
 
     private static List<string> BuildArguments(
         string searchPattern,
         string folder,
         int before,
-        int after)
+        int after,
+        string? sortBy,
+        bool sortDescending)
     {
         var arguments = new List<string>
         {
@@ -408,6 +660,12 @@ internal sealed class MainForm : Form
         {
             arguments.Add("--after-context");
             arguments.Add(after.ToString());
+        }
+
+        if (sortBy is not null)
+        {
+            arguments.Add(sortDescending ? "--sortr" : "--sort");
+            arguments.Add(sortBy);
         }
 
         arguments.Add("--");
@@ -436,6 +694,7 @@ internal sealed class MainForm : Form
     {
         outputTextBox.Clear();
         fileLineMap.Clear();
+        searchReport?.Spans.Clear();
 
         Color fileColor = Color.DeepSkyBlue;
         Color matchingLineNumberColor = Color.LimeGreen;
@@ -469,7 +728,8 @@ internal sealed class MainForm : Form
                 AppendColoredText(
                     line + "\r\n",
                     fileColor,
-                    FontStyle.Bold | FontStyle.Underline);
+                    FontStyle.Bold | FontStyle.Underline,
+                    line);
                 firstFile = false;
                 continue;
             }
@@ -534,11 +794,32 @@ internal sealed class MainForm : Form
         AppendColoredText("\r\n", textColor);
     }
 
+    private void WritePlainOutput(string text)
+    {
+        outputTextBox.Clear();
+        fileLineMap.Clear();
+        searchReport?.Spans.Clear();
+        AppendColoredText(text, Color.White);
+    }
+
     private void AppendColoredText(
         string text,
         Color color,
-        FontStyle style = FontStyle.Regular)
+        FontStyle style = FontStyle.Regular,
+        string? filePath = null)
     {
+        if (filePath is not null)
+        {
+            try
+            {
+                filePath = Path.GetFullPath(filePath);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                // Keep the displayed heading even when its path cannot be resolved.
+            }
+        }
+        searchReport?.Spans.Add(new ResultSpan(text, color, style, filePath));
         int start = outputTextBox.TextLength;
         outputTextBox.AppendText(text);
         outputTextBox.Select(start, text.Length);
@@ -621,20 +902,51 @@ internal sealed class MainForm : Form
     {
         string executableName = useRipgrepAllCheckBox.Checked ? "rga" : "rg";
         commandLabel.Text = $"{executableName} command:";
+        UpdateCommandPreview();
     }
 
-    private void UpdateCommandVisibility()
+    private void UpdateCommandPreview()
     {
-        bool visible = showCommandCheckBox.Checked;
-        commandLabel.Visible = visible;
-        commandTextBox.Visible = visible;
+        string executableName = useRipgrepAllCheckBox.Checked ? "rga" : "rg";
+        commandTextBox.Text = BuildDisplayCommand(executableName, BuildCurrentArguments());
+    }
 
-        int outputTop = visible ? 249 : 164;
-        outputLabel.Location = new Point(15, visible ? 227 : 142);
-        outputTextBox.Location = new Point(15, outputTop);
-        outputTextBox.Size = new Size(
-            Math.Max(200, ClientSize.Width - 30),
-            Math.Max(150, ClientSize.Height - outputTop - 41));
+    private void UpdateSortControls()
+    {
+        bool enabled = sortCheckBox.Enabled && sortCheckBox.Checked;
+        sortByComboBox.Enabled = enabled;
+        sortOrderComboBox.Enabled = enabled;
+    }
+
+    private void UpdateSearchVisibility()
+    {
+        SuspendLayout();
+        try
+        {
+            searchOptionsPanel.Visible = showSearchOptionsCheckBox.Checked;
+            commandLabel.Visible = showCommandCheckBox.Checked;
+            commandTextBox.Visible = showCommandCheckBox.Checked;
+
+            int nextTop = searchOptionsPanel.Top;
+            if (showSearchOptionsCheckBox.Checked)
+                nextTop += searchOptionsPanel.Height;
+
+            commandLabel.Location = new Point(15, nextTop);
+            commandTextBox.Location = new Point(15, nextTop + 22);
+            if (showCommandCheckBox.Checked)
+                nextTop += 85;
+
+            outputLabel.Location = new Point(15, nextTop);
+            int outputTop = nextTop + 22;
+            outputTextBox.Location = new Point(15, outputTop);
+            outputTextBox.Size = new Size(
+                Math.Max(200, ClientSize.Width - 30),
+                Math.Max(150, ClientSize.Height - outputTop - 41));
+        }
+        finally
+        {
+            ResumeLayout();
+        }
     }
 
     private void SetBusy(bool busy)
@@ -646,6 +958,9 @@ internal sealed class MainForm : Form
         beforeNumeric.Enabled = !busy;
         afterNumeric.Enabled = !busy;
         useRipgrepAllCheckBox.Enabled = !busy;
+        sortCheckBox.Enabled = !busy;
+        exportMenuItem.Enabled = !busy && searchReport is { Spans.Count: > 0 };
+        UpdateSortControls();
         UseWaitCursor = busy;
     }
 
@@ -668,7 +983,13 @@ internal sealed class MainForm : Form
     private void SaveCurrentSettings()
     {
         settings.ShowCommand = showCommandCheckBox.Checked;
+        settings.ShowSearchOptions = showSearchOptionsCheckBox.Checked;
+        settings.BeforeContext = (int)beforeNumeric.Value;
+        settings.AfterContext = (int)afterNumeric.Value;
         settings.UseRipgrepAll = useRipgrepAllCheckBox.Checked;
+        settings.SortEnabled = sortCheckBox.Checked;
+        settings.SortBy = sortByComboBox.Text;
+        settings.SortDescending = sortOrderComboBox.SelectedIndex == 1;
 
         string currentFolder = folderComboBox.Text.Trim();
         if (!string.IsNullOrWhiteSpace(currentFolder))
