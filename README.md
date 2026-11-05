@@ -1,90 +1,152 @@
-# Ripgrep Search — C# WinForms
+# Ripgrep Search
 
-This is the C# version of the PowerShell ripgrep search tool.
+**Ripgrep Search** is a lightweight Windows desktop application for searching files through a graphical interface. It uses [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep) for fast text searches and optionally [ripgrep-all (`rga`)](https://github.com/phiresky/ripgrep-all) to search inside PDFs, Office documents, archives, and other supported formats.
 
 ## Features
 
-- Remembers the last 10 folders.
-- Remembers the last 20 search patterns.
-- Supports regular expressions such as `word1|word2`.
-- Before/after context controls with counts remembered between sessions.
-- Optional file sorting by path, modified, accessed, or created, in ascending (`--sort`) or descending (`--sortr`) order. Sorting preferences are remembered.
-- Optional rg/rga command display.
-- Independent **Show search options** and **Show command** checkboxes below the search inputs. Hiding search options collapses the context, rga, and sorting controls while keeping their selected values active. The visibility choices are remembered.
-- Optional ripgrep-all (`rga`) mode for PDFs, Office documents, archives, e-books, and other converted formats.
-- Dark result pane with colored filenames, line numbers, and matches.
-- Double-click a blue filename to open it in its default Windows application.
-- Export results to HTML with the displayed highlighting and file links, or to Markdown with linked filenames and code blocks.
-- Stores settings in `%APPDATA%\RipgrepSearch\settings.json`.
+- **Flexible searching:** Search folders using text or regular expressions (for example, `word1|word2`), with configurable lines of context before and after matches.
+- **Document searching:** Switch to `rga` with the **Search Office/PDF files with rga** checkbox.
+- **Readable results:** Dark results pane with highlighted matches, colored filenames and line numbers; double-click a filename to open it in its default Windows application.
+- **Sorting:** Optionally sort files by path, modification time, access time, or creation time, in ascending (`--sort`) or descending (`--sortr`) order.
+- **Export:** Save search results as HTML (with highlighting and file links) or Markdown.
+- **Convenient controls:** Show or hide search options and the generated command independently. Hidden options retain their selected values and remain active.
+- **Saved preferences:** Remember the last 10 folders, last 20 search patterns, context counts, sorting choices, visibility settings, and `rga` mode.
+- **Explorer integration:** Launch searches from the Windows Explorer address bar or an optional right-click menu.
 
 ## Requirements
 
 - Windows 10 or Windows 11.
-- `rg.exe` installed and available on PATH.
-- Optional: `rga.exe` installed and available on PATH to search Office documents, PDFs, archives, e-books, and other supported formats. Some rga adapters require external converter tools.
-- To build: .NET 8 SDK.
+- **Required:** `rg.exe` accessible through `PATH` for normal searches.
+- **Optional:** `rga.exe` accessible through `PATH` for document searches. Some `rga` formats require additional converter programs.
 
-## Export search results
+### Install ripgrep (`rg`)
 
-After a search, choose **File → Export Results…** (or press **Ctrl+S**) and select HTML or Markdown in the save dialog. Each report includes the folder, search pattern, command, search start time, and completion status from that search, even if you have since changed the controls.
+Open PowerShell or Command Prompt and run:
 
-HTML keeps the dark results background, colors, bold matches, and clickable filenames. Markdown uses linked filename headings and plain code blocks, without the exact colors. Both formats preserve result order and context lines, and support Unicode text.
+```powershell
+winget install BurntSushi.ripgrep.MSVC
+```
 
-Links point to the original files and require those paths to remain accessible. Browsers and Markdown viewers may restrict local file links or open files differently from the application. The export contains the displayed results, rather than copies of the searched files.
+Alternatively, download a Windows build from the [ripgrep releases](https://github.com/BurntSushi/ripgrep/releases).
 
-## Create the executable
+### Install ripgrep-all (`rga`) — optional
 
-Double-click:
+On Windows, the [ripgrep-all installation documentation](https://github.com/phiresky/ripgrep-all#installation) recommends Chocolatey or Scoop so that dependencies are included. If you already use Chocolatey, run:
 
-`publish-single-exe.bat`
+```powershell
+choco install ripgrep-all
+```
 
-The finished standalone executable will be written to:
+Or, if you use Scoop, run:
 
-`bin\Release\net8.0-windows\win-x64\publish\RipgrepSearch.exe`
+```powershell
+scoop install rga
+```
 
-Because the publish script uses `--self-contained true`, the target computer does not need the .NET runtime installed. It still needs access to `rg.exe`. To use the document-search checkbox, it also needs access to `rga.exe` and any converter programs required by the selected file formats.
+Windows binaries are also available from the [ripgrep-all releases](https://github.com/phiresky/ripgrep-all/releases), but manual downloads do not include the external dependencies. If installing manually, extract the archive and keep `rga.exe` and its accompanying files in a permanent directory, such as `C:\Tools\ripgrep-all`, then install the converters required for your document formats.
 
-## Open in Visual Studio
+Some document formats require external converters. See the [ripgrep-all documentation](https://github.com/phiresky/ripgrep-all) for format-specific requirements.
 
-Open `RipgrepSearch.csproj` in Visual Studio 2022 and run or publish it as a WinForms project.
+### Add manually installed tools to `PATH`
 
-## Launch from the Windows Explorer address bar
+Tools installed through WinGet may already be on `PATH`. For manually installed executables:
 
-The application now uses the current working folder when no folder argument is supplied. After adding the folder containing `RipgrepSearch.exe` to your user `PATH`, open any folder in Explorer, type:
+1. In the Windows Start menu, search for **Edit environment variables for your account**.
+2. Under **User variables**, select **Path** and click **Edit**.
+3. Click **New** and enter the **folder** containing `rg.exe` or `rga.exe` (not the full executable path).
+4. Save the changes and restart open terminals and Ripgrep Search.
 
-`RipgrepSearch`
+Open a **new** PowerShell or Command Prompt window to verify:
 
-in the address bar, and press Enter. The application opens with that Explorer folder selected.
+```powershell
+rg --version
+rga --version
+```
 
-You can also pass a folder explicitly:
+The second command is only needed if you installed `rga`. Normal `rg` searches still work without it.
 
-`RipgrepSearch "C:\Projects\Reports"`
+## Install Ripgrep Search
 
-## Optional Explorer right-click menu
+1. Open the repository's [Releases page](https://github.com/hansvdf/Ripgrep_Search/releases).
+2. If a prebuilt Windows x64 ZIP archive is available, download it. Otherwise, follow **Build from source** below to create the executable.
+3. Extract it to a permanent folder, such as `C:\Tools\RipgrepSearch`.
+4. Install `rg` as described above. Install `rga` too if you want to search inside supported document formats.
+5. Run `RipgrepSearch.exe`.
 
-After publishing the executable, double-click:
+The published **self-contained** executable does not require a separate .NET runtime installation. `rg` and `rga` are external tools and are not included in the application executable.
 
-`install-explorer-context-menu.bat`
+## Use Ripgrep Search
 
-This adds **Search with RipgrepSearch** when right-clicking:
+Select a folder, enter a search pattern, and start the search. Regular expressions such as `word1|word2` are supported. Use the optional **Before** and **After** controls to include surrounding lines, and enable sorting if you want results ordered by file path or timestamps.
 
-- A folder.
-- Empty space inside a folder.
-- A drive.
+Select **Search Office/PDF files with rga** to use `rga` instead of `rg`. Leave it unchecked for normal text-file searches. If `rga` is unavailable, the application displays an error rather than switching silently to `rg`.
 
-The installer writes only to the current user's registry (`HKCU`), so administrator rights are not normally required.
+Use **Show search options** and **Show command** to control how much space the options and generated command occupy. The command preview updates as search settings change.
 
-To remove the entries, run:
+Choose **Help → About** to see the application icon and version number.
 
-`uninstall-explorer-context-menu.bat`
+### Export results
 
+After a search, choose **File → Export Results…** or press **Ctrl+S**, then select HTML or Markdown.
 
-## Application icon
+Exports preserve the results and search details captured when that search ran, even if you subsequently change the input controls. HTML retains the displayed highlighting and file links; Markdown contains linked filename headings and code blocks. Both preserve result order and context lines.
 
-The project includes `RipgrepSearch.ico`. The icon is embedded into the executable and is also used by the main window, so it appears in the title bar, taskbar, Explorer, and shortcuts. Re-run `publish-single-exe.bat` after changing the icon.
+File links refer to the original paths; they may stop working if files move, and some browsers or Markdown viewers restrict local file links. Exported reports do not contain copies of the source files.
 
-## Search Office documents and PDFs
+## Windows Explorer integration
 
-Enable **Search Office/PDF files with rga** to run the same search through `rga` instead of `rg`. The generated command preview changes accordingly. Disable the checkbox for the fastest normal text-file search.
+### Launch from the address bar
 
-The checkbox choice is remembered in `%APPDATA%\RipgrepSearch\settings.json`. If `rga.exe` is not on PATH, the application displays a specific error explaining what is missing.
+Add the directory containing `RipgrepSearch.exe` to your user `PATH` using the same procedure described above. Then open a folder in Windows Explorer, type `RipgrepSearch` in the address bar, and press Enter. The application opens with that folder selected.
+
+You can also provide an explicit folder argument:
+
+```cmd
+RipgrepSearch "C:\Projects\Reports"
+```
+
+### Optional right-click menu
+
+After publishing from a source checkout, run `install-explorer-context-menu.bat`. By default, it registers the executable at `bin\Release\net8.0-windows\win-x64\publish\RipgrepSearch.exe` relative to the scripts.
+
+If you keep the executable elsewhere, open PowerShell in the directory containing the installer scripts and supply its full path:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-explorer-context-menu.ps1 -ExecutablePath "C:\Tools\RipgrepSearch\RipgrepSearch.exe"
+```
+
+Keep the executable at the registered location. The installer adds **Search with RipgrepSearch** to the context menu for folders, folder backgrounds, and drives.
+
+The installer uses the current user's registry (`HKCU`) and normally does not require administrator privileges. To remove the entries, run `uninstall-explorer-context-menu.bat` from the same package or checkout.
+
+## Settings
+
+Preferences and recent search history are saved in:
+
+```text
+%APPDATA%\RipgrepSearch\settings.json
+```
+
+## Build from source
+
+These steps are for developers. If you downloaded a published executable, you do **not** need the .NET SDK or Visual Studio.
+
+**Requirements:** .NET 8 SDK (or Visual Studio 2022 with the appropriate .NET desktop development tooling).
+
+Open `RipgrepSearch.csproj` in Visual Studio 2022, or run the included `publish-single-exe.bat` to create a self-contained Windows x64 executable.
+
+For development and testing, open a terminal in the project directory and run:
+
+```powershell
+dotnet run
+```
+
+This builds and launches the application without publishing it. To build without launching, run `build.bat` or `dotnet build -c Release`.
+
+The publish script writes the executable to:
+
+```text
+bin\Release\net8.0-windows\win-x64\publish\RipgrepSearch.exe
+```
+
+The project includes `RipgrepSearch.ico`, embedded in the executable and used by the application's window and taskbar icon.
