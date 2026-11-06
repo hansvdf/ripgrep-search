@@ -5,11 +5,13 @@ using System.Text.RegularExpressions;
 
 namespace RipgrepSearch;
 
-internal sealed record ResultSpan(string Text, Color Color, FontStyle Style, string? FilePath = null);
+internal sealed record ResultSpan(string Text, Color Color, FontStyle Style,
+    string? FilePath = null, bool IsFileHeading = false);
 
 internal sealed record SearchReport(string Folder, string Pattern, string Command, DateTimeOffset StartedAt)
 {
     public List<ResultSpan> Spans { get; } = [];
+    public List<SearchResultLine> Results { get; } = [];
     public string Status { get; set; } = string.Empty;
 }
 
@@ -84,7 +86,7 @@ internal static class ResultsExporter
         var content = new StringBuilder();
         foreach (ResultSpan span in report.Spans)
         {
-            if (span.FilePath is not null)
+            if (span.IsFileHeading || span.FilePath is not null)
             {
                 FlushContent();
                 string filename = EscapeMarkdown(span.Text.TrimEnd('\r', '\n'));
