@@ -168,8 +168,16 @@ The project includes `RipgrepSearch.ico`, embedded in the executable and used by
 Run the package-free regression suite on Windows:
 
 ```powershell
+.\run-tests.ps1
+```
+
+The script runs from the project directory and returns the test command's exit code. The equivalent command is:
+
+```powershell
 dotnet run --project tests/RipgrepSearch.Tests/RipgrepSearch.Tests.csproj -c Release
 ```
+
+`-c Release` selects the Release build configuration, which enables compiler optimizations. The command builds and runs the tests; it does not publish the application.
 
 The suite requires `rg` and `rga` on `PATH`, plus the rga converters for DOCX and PDF (`pandoc` and `pdftotext`). It checks parsing and Unicode offsets, engine compatibility, matching-line count equivalence with the previous text output, sorting, exports, cancellation, process failures, display limits, and offscreen WinForms rendering. Test inputs and application settings use isolated folders under the test build output; tests do not change the normal application settings.
 
