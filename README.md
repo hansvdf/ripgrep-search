@@ -150,3 +150,8 @@ bin\Release\net8.0-windows\win-x64\publish\RipgrepSearch.exe
 ```
 
 The project includes `RipgrepSearch.ico`, embedded in the executable and used by the application's window and taskbar icon.
+
+## License
+
+Ripgrep Search is licensed under the MIT License.
+See the [LICENSE](LICENSE) file for details.
