@@ -9,8 +9,9 @@ internal sealed class RipgrepJsonParser(string workingDirectory)
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     public bool HasSummary { get; private set; }
 
-    public IReadOnlyList<SearchResultLine> Parse(string json)
+    public IReadOnlyList<SearchResultLine> Parse(string json, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -18,7 +19,8 @@ internal sealed class RipgrepJsonParser(string workingDirectory)
             string? type = root.GetProperty("type").GetString();
             if (type == "summary")
             {
-                root.GetProperty("data");
+                if (root.GetProperty("data").ValueKind != JsonValueKind.Object)
+                    throw new InvalidDataException("Invalid summary event.");
                 HasSummary = true;
                 return [];
             }
@@ -43,11 +45,12 @@ internal sealed class RipgrepJsonParser(string workingDirectory)
                 throw new InvalidDataException("Invalid result line number.");
 
             byte[] bytes = ReadBytes(data.GetProperty("lines"));
-            var (text, floor, ceiling) = Decode(bytes);
+            var (text, floor, ceiling) = Decode(bytes, cancellationToken);
             var ranges = new List<MatchRange>();
             int previousStart = -1;
             foreach (JsonElement match in data.GetProperty("submatches").EnumerateArray())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int start = match.GetProperty("start").GetInt32();
                 int end = match.GetProperty("end").GetInt32();
                 if (start < previousStart || start < 0 || end < start || end > bytes.Length)
@@ -63,6 +66,7 @@ internal sealed class RipgrepJsonParser(string workingDirectory)
             int rangeStart = 0;
             do
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int newline = text.IndexOf('\n', lineStart);
                 int lineEnd = newline < 0 ? text.Length : newline;
                 if (newline >= 0 && lineEnd > lineStart && text[lineEnd - 1] == '\r')
@@ -104,7 +108,7 @@ internal sealed class RipgrepJsonParser(string workingDirectory)
         throw new InvalidDataException("Result text has neither text nor bytes.");
     }
 
-    private static (string Text, int[] Floor, int[] Ceiling) Decode(byte[] bytes)
+    private static (string Text, int[] Floor, int[] Ceiling) Decode(byte[] bytes, CancellationToken cancellationToken)
     {
         // Decode once, including invalid UTF-8. Interior byte offsets round outwards
         // to the containing Unicode scalar rather than splitting surrogate pairs.
@@ -114,6 +118,8 @@ internal sealed class RipgrepJsonParser(string workingDirectory)
         Span<char> characters = stackalloc char[2];
         for (int offset = 0; offset < bytes.Length;)
         {
+            if ((offset & 1023) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             OperationStatus status = Rune.DecodeFromUtf8(bytes.AsSpan(offset), out Rune rune, out int consumed);
             if (status != OperationStatus.Done)
                 rune = Rune.ReplacementChar;

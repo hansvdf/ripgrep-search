@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
+using System.Threading.Channels;
 
 namespace RipgrepSearch;
 
@@ -119,6 +119,8 @@ internal sealed class MainForm : Form
     private readonly Label statusLabel = new();
     private readonly ToolStripMenuItem exportMenuItem = new("&Export Results...") { Enabled = false };
     private SearchReport? searchReport;
+    private CancellationTokenSource? searchCancellation;
+    private bool closeAfterSearch;
 
     private readonly Dictionary<int, string> fileLineMap = new();
     private readonly string settingsFolder;
@@ -126,10 +128,10 @@ internal sealed class MainForm : Form
     private readonly AppSettings settings;
     private readonly string? startupFolder;
 
-    public MainForm(string? startupFolder = null)
+    public MainForm(string? startupFolder = null, string? settingsDirectory = null)
     {
         this.startupFolder = startupFolder;
-        settingsFolder = Path.Combine(
+        settingsFolder = settingsDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "RipgrepSearch");
         settingsFile = Path.Combine(settingsFolder, "settings.json");
@@ -155,7 +157,19 @@ internal sealed class MainForm : Form
         UpdateSearchVisibility();
 
         AcceptButton = searchButton;
-        FormClosing += (_, _) => SaveCurrentSettings();
+        FormClosing += (_, e) =>
+        {
+            if (searchCancellation is not null)
+            {
+                e.Cancel = true;
+                closeAfterSearch = true;
+                searchCancellation.Cancel();
+            }
+            else
+            {
+                SaveCurrentSettings();
+            }
+        };
         Resize += (_, _) => UpdateSearchVisibility();
     }
 
@@ -208,7 +222,13 @@ internal sealed class MainForm : Form
         searchButton.Location = new Point(785, 55);
         searchButton.Size = new Size(100, 29);
         searchButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        searchButton.Click += async (_, _) => await RunSearchAsync();
+        searchButton.Click += async (_, _) =>
+        {
+            if (searchCancellation is not null)
+                searchCancellation.Cancel();
+            else
+                await RunSearchAsync();
+        };
 
         showSearchOptionsCheckBox.Text = "Show search options";
         showSearchOptionsCheckBox.Location = new Point(15, 100);
@@ -519,6 +539,8 @@ internal sealed class MainForm : Form
 
     private async Task RunSearchAsync()
     {
+        if (searchCancellation is not null)
+            return;
         string folder = folderComboBox.Text.Trim();
         string searchPattern = searchComboBox.Text;
 
@@ -564,114 +586,83 @@ internal sealed class MainForm : Form
         outputTextBox.Clear();
         fileLineMap.Clear();
         statusLabel.Text = "Searching...";
+        using var cancellation = new CancellationTokenSource();
+        searchCancellation = cancellation;
         SetBusy(true);
 
+        var channel = Channel.CreateBounded<IReadOnlyList<SearchResultLine>>(
+            new BoundedChannelOptions(2) { SingleReader = true, SingleWriter = true });
+        Task<SearchOutcome> runTask = Task.Run(() => SearchRunner.RunAsync(
+            searchExecutablePath, arguments, Environment.CurrentDirectory, channel.Writer, cancellation.Token));
+        SearchOutcome outcome;
         try
         {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = searchExecutablePath,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
-
-            foreach (string argument in arguments)
-                startInfo.ArgumentList.Add(argument);
-
-            using var process = new Process { StartInfo = startInfo };
-            process.Start();
-
-            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
-            Task<string> errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            string output = await outputTask;
-            string error = await errorTask;
-
-            switch (process.ExitCode)
-            {
-                case 0:
-                    WriteSearchResults(output, searchPattern);
-                    int matchCount = Regex.Matches(output, @"(?m)^\d+:").Count;
-                    statusLabel.Text = $"Search completed. {matchCount} matching line(s) found.";
-                    break;
-                case 1:
-                    WritePlainOutput("No matches found.");
-                    statusLabel.Text = "Search completed. No matches found.";
-                    break;
-                default:
-                    WritePlainOutput(string.IsNullOrWhiteSpace(error)
-                        ? $"Search failed with exit code {process.ExitCode}."
-                        : error);
-                    statusLabel.Text = $"Search failed with exit code {process.ExitCode}.";
-                    break;
-            }
+            await RenderResultsAsync(channel.Reader, cancellation.Token);
+            outcome = await runTask;
+            if (cancellation.IsCancellationRequested && outcome.Completion != SearchCompletion.Failed)
+                outcome = outcome with { Completion = SearchCompletion.Cancelled, Reason = "Search cancelled." };
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            outcome = await runTask;
+            if (outcome.Completion != SearchCompletion.Failed)
+                outcome = outcome with { Completion = SearchCompletion.Cancelled, Reason = "Search cancelled." };
         }
         catch (Exception ex)
         {
-            WritePlainOutput(ex.Message);
-            statusLabel.Text = "Search failed.";
+            cancellation.Cancel();
+            await runTask;
+            outcome = new SearchOutcome(SearchCompletion.Failed, null, string.Empty,
+                $"Could not display search results: {ex.Message}");
+        }
+
+        try
+        {
+            int matchingLines = searchReport.Results.Count(line => line.IsMatch);
+            statusLabel.Text = DescribeOutcome(outcome, matchingLines);
+            if (searchReport.Results.Count == 0 && outcome.Completion == SearchCompletion.Completed)
+                WritePlainOutput("No matches found.");
+            if (outcome.Completion != SearchCompletion.Completed)
+                AppendColoredText($"\r\n{outcome.Reason}\r\n", Color.Gray);
+            if (!string.IsNullOrWhiteSpace(outcome.Diagnostics))
+                AppendColoredText($"\r\nDiagnostics:\r\n{outcome.Diagnostics.TrimEnd()}\r\n", Color.Gray);
+            searchReport.Status = statusLabel.Text;
+            outputTextBox.Select(0, 0);
+            outputTextBox.ScrollToCaret();
         }
         finally
         {
-            searchReport.Status = statusLabel.Text;
+            searchCancellation = null;
             SetBusy(false);
+            if (closeAfterSearch)
+                BeginInvoke(new Action(Close));
         }
+    }
+
+    internal static string DescribeOutcome(SearchOutcome outcome, int matchingLines)
+    {
+        string status = outcome.Completion switch
+        {
+            SearchCompletion.Completed when matchingLines == 0 => "Search completed. No matches found.",
+            SearchCompletion.Completed => $"Search completed. {matchingLines} matching line(s) found.",
+            SearchCompletion.Cancelled => $"Search cancelled. {matchingLines} matching line(s) shown; results are incomplete.",
+            SearchCompletion.Limited => $"Display limit reached. {matchingLines} matching line(s) shown; search stopped.",
+            _ => $"Search failed{(outcome.ExitCode is null ? "" : $" with exit code {outcome.ExitCode}")}. {matchingLines} matching line(s) shown; results may be incomplete."
+        };
+        return outcome.Completion == SearchCompletion.Completed && !string.IsNullOrWhiteSpace(outcome.Diagnostics)
+            ? status + " Warnings reported."
+            : status;
     }
 
     private List<string> BuildCurrentArguments()
     {
-        return BuildArguments(
+        return SearchRunner.BuildArguments(
             searchComboBox.Text,
             folderComboBox.Text.Trim(),
             (int)beforeNumeric.Value,
             (int)afterNumeric.Value,
             sortCheckBox.Checked ? sortByComboBox.Text : null,
             sortOrderComboBox.SelectedIndex == 1);
-    }
-
-    private static List<string> BuildArguments(
-        string searchPattern,
-        string folder,
-        int before,
-        int after,
-        string? sortBy,
-        bool sortDescending)
-    {
-        var arguments = new List<string>
-        {
-            "--heading",
-            "--line-number",
-            "--color",
-            "never"
-        };
-
-        if (before > 0)
-        {
-            arguments.Add("--before-context");
-            arguments.Add(before.ToString());
-        }
-
-        if (after > 0)
-        {
-            arguments.Add("--after-context");
-            arguments.Add(after.ToString());
-        }
-
-        if (sortBy is not null)
-        {
-            arguments.Add(sortDescending ? "--sortr" : "--sort");
-            arguments.Add(sortBy);
-        }
-
-        arguments.Add("--");
-        arguments.Add(searchPattern);
-        arguments.Add(folder);
-        return arguments;
     }
 
     private static string BuildDisplayCommand(
@@ -690,108 +681,43 @@ internal sealed class MainForm : Form
         return '"' + argument.Replace("\\", "\\\\").Replace("\"", "\\\"") + '"';
     }
 
-    private void WriteSearchResults(string output, string searchPattern)
+    private async Task RenderResultsAsync(ChannelReader<IReadOnlyList<SearchResultLine>> reader,
+        CancellationToken cancellationToken)
     {
-        outputTextBox.Clear();
-        fileLineMap.Clear();
-        searchReport?.Spans.Clear();
-
-        Color fileColor = Color.DeepSkyBlue;
-        Color matchingLineNumberColor = Color.LimeGreen;
-        Color contextLineNumberColor = Color.DarkGray;
-        Color textColor = Color.White;
-        Color matchColor = Color.OrangeRed;
-        Color separatorColor = Color.Gray;
-
-        bool firstFile = true;
-        string[] lines = Regex.Split(output, "\\r?\\n");
-
-        foreach (string line in lines)
+        var formatter = new SearchResultFormatter();
+        int matchingLines = 0;
+        await foreach (IReadOnlyList<SearchResultLine> batch in reader.ReadAllAsync(cancellationToken))
         {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
-
-            if (line == "--")
+            var formatted = await Task.Run(() =>
             {
-                AppendColoredText("  --\r\n", separatorColor);
-                continue;
-            }
-
-            Match resultLine = Regex.Match(line, @"^(\d+)([:-])(.*)$");
-            if (!resultLine.Success)
+                var spans = new List<ResultSpan>();
+                foreach (SearchResultLine line in batch)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    spans.AddRange(formatter.Format(line));
+                }
+                return (Spans: spans, Rtf: ResultRtfBuilder.Build(spans));
+            }, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            int insertionStart = outputTextBox.TextLength;
+            outputTextBox.Select(outputTextBox.TextLength, 0);
+            outputTextBox.SelectedRtf = formatted.Rtf;
+            int textOffset = 0;
+            foreach (ResultSpan span in formatted.Spans)
             {
-                if (!firstFile)
-                    AppendColoredText("\r\n", textColor);
-
-                int richTextLine = outputTextBox.GetLineFromCharIndex(outputTextBox.TextLength);
-                fileLineMap[richTextLine] = line;
-                AppendColoredText(
-                    line + "\r\n",
-                    fileColor,
-                    FontStyle.Bold | FontStyle.Underline,
-                    line);
-                firstFile = false;
-                continue;
+                if (span.IsFileHeading && span.FilePath is not null)
+                    fileLineMap[outputTextBox.GetLineFromCharIndex(insertionStart + textOffset)] = span.FilePath;
+                // RichEdit stores each CRLF paragraph terminator as one character.
+                textOffset += span.Text.Length;
+                for (int i = 0; i + 1 < span.Text.Length; i++)
+                    if (span.Text[i] == '\r' && span.Text[i + 1] == '\n')
+                        textOffset--;
             }
-
-            string lineNumber = resultLine.Groups[1].Value;
-            string separator = resultLine.Groups[2].Value;
-            string content = resultLine.Groups[3].Value;
-
-            AppendColoredText(
-                $"  {lineNumber}{separator} ",
-                separator == ":" ? matchingLineNumberColor : contextLineNumberColor);
-
-            if (separator == ":")
-                WriteHighlightedContent(content, searchPattern, textColor, matchColor);
-            else
-                AppendColoredText(content + "\r\n", textColor);
+            searchReport!.Results.AddRange(batch);
+            searchReport.Spans.AddRange(formatted.Spans);
+            matchingLines += batch.Count(line => line.IsMatch);
+            statusLabel.Text = $"Searching... {matchingLines} matching line(s) shown.";
         }
-
-        outputTextBox.Select(0, 0);
-        outputTextBox.ScrollToCaret();
-    }
-
-    private void WriteHighlightedContent(
-        string content,
-        string searchPattern,
-        Color textColor,
-        Color matchColor)
-    {
-        MatchCollection matches;
-        try
-        {
-            matches = Regex.Matches(content, searchPattern);
-        }
-        catch (ArgumentException)
-        {
-            AppendColoredText(content + "\r\n", textColor);
-            return;
-        }
-
-        if (matches.Count == 0)
-        {
-            AppendColoredText(content + "\r\n", textColor);
-            return;
-        }
-
-        int position = 0;
-        foreach (Match match in matches)
-        {
-            if (match.Length == 0)
-                continue;
-
-            if (match.Index > position)
-                AppendColoredText(content[position..match.Index], textColor);
-
-            AppendColoredText(match.Value, matchColor, FontStyle.Bold);
-            position = match.Index + match.Length;
-        }
-
-        if (position < content.Length)
-            AppendColoredText(content[position..], textColor);
-
-        AppendColoredText("\r\n", textColor);
     }
 
     private void WritePlainOutput(string text)
@@ -824,7 +750,8 @@ internal sealed class MainForm : Form
         outputTextBox.AppendText(text);
         outputTextBox.Select(start, text.Length);
         outputTextBox.SelectionColor = color;
-        outputTextBox.SelectionFont = new Font(outputTextBox.Font, style);
+        using var font = new Font(outputTextBox.Font, style);
+        outputTextBox.SelectionFont = font;
         outputTextBox.Select(outputTextBox.TextLength, 0);
     }
 
@@ -951,7 +878,8 @@ internal sealed class MainForm : Form
 
     private void SetBusy(bool busy)
     {
-        searchButton.Enabled = !busy;
+        searchButton.Enabled = true;
+        searchButton.Text = busy ? "Cancel" : "Search";
         browseButton.Enabled = !busy;
         folderComboBox.Enabled = !busy;
         searchComboBox.Enabled = !busy;
@@ -961,7 +889,7 @@ internal sealed class MainForm : Form
         sortCheckBox.Enabled = !busy;
         exportMenuItem.Enabled = !busy && searchReport is { Spans.Count: > 0 };
         UpdateSortControls();
-        UseWaitCursor = busy;
+        outputTextBox.UseWaitCursor = busy;
     }
 
     private AppSettings LoadSettings()
