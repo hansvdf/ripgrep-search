@@ -83,6 +83,16 @@ Select **Search Office/PDF files with rga** to use `rga` instead of `rg`. Leave 
 
 Use **Show search options** and **Show command** to control how much space the options and generated command occupy. The command preview updates as search settings change.
 
+Highlights use the match positions reported by `rg` or `rga` through `--json`, including case-insensitive and Unicode matches. The application does not run the search pattern through a second regex engine. Zero-length matches count as matching lines but do not color an unrelated character.
+
+During a search, **Search** becomes **Cancel**. Cancelling or closing the window stops the search and its converter processes. Results appear in batches while the interface remains available.
+
+The completion count is the number of matching output lines, not the number of individual occurrences. Multiple matches on one line count once. For `rga`, these are lines in the converted document text.
+
+To keep large searches manageable, the application stops at 10,000 result lines (including context), an approximately 2,000,000-character result budget (including paths and formatting allowance), a result line longer than 16,384 characters, or a JSON message longer than 4,194,304 characters. When a limit is reached, the displayed count is explicitly partial. Refine the search to reduce the result set.
+
+Cancelled or failed searches retain the results already shown and include a diagnostic message. Invalid UTF-8 text is displayed using replacement characters; file paths that cannot be decoded safely are displayed without an active file link.
+
 Choose **Help → About** to see the application icon and version number.
 
 ### Export results
@@ -92,6 +102,8 @@ After a search, choose **File → Export Results…** or press **Ctrl+S**, then 
 Exports preserve the results and search details captured when that search ran, even if you subsequently change the input controls. HTML retains the displayed highlighting and file links; Markdown contains linked filename headings and code blocks. Both preserve result order and context lines.
 
 File links refer to the original paths; they may stop working if files move, and some browsers or Markdown viewers restrict local file links. Exported reports do not contain copies of the source files.
+
+Exports of cancelled, limited, or failed searches contain the results actually displayed and retain the incomplete-search status. They do not imply a full-search total.
 
 ## Windows Explorer integration
 
@@ -150,6 +162,16 @@ bin\Release\net8.0-windows\win-x64\publish\RipgrepSearch.exe
 ```
 
 The project includes `RipgrepSearch.ico`, embedded in the executable and used by the application's window and taskbar icon.
+
+### Tests
+
+Run the package-free regression suite on Windows:
+
+```powershell
+dotnet run --project tests/RipgrepSearch.Tests/RipgrepSearch.Tests.csproj -c Release
+```
+
+The suite requires `rg` and `rga` on `PATH`, plus the rga converters for DOCX and PDF (`pandoc` and `pdftotext`). It checks parsing and Unicode offsets, engine compatibility, matching-line count equivalence with the previous text output, sorting, exports, cancellation, process failures, display limits, and offscreen WinForms rendering. Test inputs and application settings use isolated folders under the test build output; tests do not change the normal application settings.
 
 ## License
 
