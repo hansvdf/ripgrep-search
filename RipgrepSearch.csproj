@@ -10,4 +10,8 @@
     <RootNamespace>RipgrepSearch</RootNamespace>
     <ApplicationIcon>RipgrepSearch.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+    <InternalsVisibleTo Include="RipgrepSearch.Tests" />
+  </ItemGroup>
 </Project>
