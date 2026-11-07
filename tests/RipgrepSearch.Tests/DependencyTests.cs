@@ -312,10 +312,12 @@ internal static class DependencyTests
         var rgaLink = Field<LinkLabel>(dialog, "rgaLink");
         var details = Field<TextBox>(dialog, "detailsTextBox");
         Size compactSize = dialog.ClientSize;
+        var grid = Field<DataGridView>(dialog, "dependencyGrid");
+        Check(grid.DisplayedRowCount(includePartialRow: false) == 2, "both dependency rows are fully visible with padded cell styling");
         void ToggleDetails() => typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(toggle, [new LinkLabelLinkClickedEventArgs(toggle.Links[0])]);
 
-        Check(summary.Visible && summary.Text == "✅ All dependencies are available.", "successful checks show a single availability summary");
+        Check(summary.Visible && summary.Text == "All dependencies are available.", "successful checks show a single availability summary");
         Check(!toggle.Visible && !details.Visible && details.Text.Length == 0 && !rgLink.Visible && !rgaLink.Visible,
             "successful checks have no redundant diagnostics or installation links");
 

@@ -23,7 +23,9 @@ internal sealed class DependencyDialog : Form
     private readonly ToolTip refreshToolTip = new() { AutoPopDelay = 10_000 };
     private readonly Func<CancellationToken, Task<DependencyCheckResult[]>> checkDependencies;
     private readonly Action<string> copyToClipboard;
+    private readonly Font dependencyNameFont;
     private DependencyCheckResult[] lastResults = [];
+    private DependencyStatus? summaryStatus;
     private CancellationTokenSource? activeCancellation;
     private bool closing;
     private bool detailsExpanded;
@@ -35,6 +37,9 @@ internal sealed class DependencyDialog : Form
         this.copyToClipboard = copyToClipboard ?? (text => Clipboard.SetText(text, TextDataFormat.UnicodeText));
         Text = "Check Dependencies";
         Font = new Font("Segoe UI", 9F);
+        dependencyNameFont = new Font(Font, FontStyle.Bold);
+        BackColor = SystemColors.Window;
+        ForeColor = SystemColors.WindowText;
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
         StartPosition = FormStartPosition.CenterParent;
@@ -55,31 +60,55 @@ internal sealed class DependencyDialog : Form
         dependencyGrid.MultiSelect = false;
         dependencyGrid.ClipboardCopyMode = DataGridViewClipboardCopyMode.EnableWithoutHeaderText;
         dependencyGrid.BackgroundColor = SystemColors.Window;
-        dependencyGrid.BorderStyle = BorderStyle.FixedSingle;
+        dependencyGrid.BorderStyle = BorderStyle.None;
+        dependencyGrid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+        dependencyGrid.GridColor = SystemInformation.HighContrast ? SystemColors.ControlDark : Color.FromArgb(232, 232, 232);
+        dependencyGrid.EnableHeadersVisualStyles = false;
+        dependencyGrid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
+        dependencyGrid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+        dependencyGrid.ColumnHeadersHeight = 32;
+        dependencyGrid.ColumnHeadersDefaultCellStyle.BackColor = BackColor;
+        dependencyGrid.ColumnHeadersDefaultCellStyle.ForeColor = SystemInformation.HighContrast
+            ? ForeColor : SystemColors.GrayText;
+        dependencyGrid.ColumnHeadersDefaultCellStyle.SelectionBackColor = BackColor;
+        dependencyGrid.ColumnHeadersDefaultCellStyle.SelectionForeColor = SystemColors.WindowText;
+        dependencyGrid.ColumnHeadersDefaultCellStyle.Padding = new Padding(8, 0, 8, 0);
+        dependencyGrid.DefaultCellStyle.BackColor = BackColor;
+        dependencyGrid.DefaultCellStyle.ForeColor = ForeColor;
+        dependencyGrid.DefaultCellStyle.Padding = new Padding(8, 9, 8, 9);
+        dependencyGrid.DefaultCellStyle.SelectionBackColor = SystemInformation.HighContrast
+            ? SystemColors.Highlight : Color.FromArgb(235, 242, 250);
+        dependencyGrid.DefaultCellStyle.SelectionForeColor = SystemInformation.HighContrast
+            ? SystemColors.HighlightText : ForeColor;
         dependencyGrid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
         dependencyGrid.Font = Font;
         dependencyGrid.CellPainting += PaintStatusCell;
         dependencyGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Dependency", HeaderText = "Dependency", Width = 150, SortMode = DataGridViewColumnSortMode.NotSortable });
+        dependencyGrid.Columns["Dependency"]!.DefaultCellStyle.Font = dependencyNameFont;
         dependencyGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "Status", Width = 95, SortMode = DataGridViewColumnSortMode.NotSortable });
         dependencyGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Version", HeaderText = "Version", Width = 120, SortMode = DataGridViewColumnSortMode.NotSortable });
         dependencyGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "ExecutablePath", HeaderText = "Executable path", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, MinimumWidth = 250, SortMode = DataGridViewColumnSortMode.NotSortable });
 
         foreach (DependencyDefinition dependency in DependencyChecker.Dependencies)
             dependencyGrid.Rows.Add(dependency.DisplayName, "Checking…", "—", "—");
+        // Pre-handle row metrics omit some padding; measure using the actual control.
+        _ = dependencyGrid.Handle;
         dependencyGrid.AutoResizeRows();
         dependencyGrid.Height = dependencyGrid.ColumnHeadersHeight +
-            dependencyGrid.Rows.GetRowsHeight(DataGridViewElementStates.Visible) + 2;
+            dependencyGrid.Rows.GetRowsHeight(DataGridViewElementStates.Visible);
         int contentOffset = dependencyGrid.Height - 100;
-        ClientSize = new Size(900, 275 + contentOffset);
-        MinimumSize = new Size(780, 270 + contentOffset);
+        ClientSize = new Size(900, 305 + contentOffset);
+        MinimumSize = new Size(780, Height);
 
         summaryLabel.Location = new Point(15, 130 + contentOffset);
         summaryLabel.Size = new Size(750, 25);
         summaryLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         summaryLabel.AccessibleName = "Dependency summary";
+        summaryLabel.TextAlign = ContentAlignment.MiddleLeft;
         summaryLabel.Text = "Checking dependencies…";
+        summaryLabel.Paint += PaintSummaryIcon;
         detailsToggle.Text = "Show details";
-        detailsToggle.Location = new Point(785, 130 + contentOffset);
+        detailsToggle.Location = new Point(785, 135 + contentOffset);
         detailsToggle.AutoSize = true;
         detailsToggle.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         detailsToggle.Visible = false;
@@ -90,6 +119,7 @@ internal sealed class DependencyDialog : Form
         detailsTextBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         detailsTextBox.Multiline = true;
         detailsTextBox.ReadOnly = true;
+        detailsTextBox.BackColor = BackColor;
         detailsTextBox.ScrollBars = ScrollBars.Vertical;
         detailsTextBox.AccessibleName = "Dependency check details";
         detailsTextBox.Visible = false;
@@ -100,6 +130,7 @@ internal sealed class DependencyDialog : Form
             Text = "rg provides text searches and rga's search backend. rga adds document conversion; converters are not verified here.",
             Location = new Point(15, 165 + contentOffset),
             Size = new Size(870, 30),
+            ForeColor = SystemColors.GrayText,
             Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
         };
         rgLink = InstallationLink("Install ripgrep", 15, DependencyChecker.Dependencies[0].InstallationUrl);
@@ -108,27 +139,27 @@ internal sealed class DependencyDialog : Form
         rgaLink.Top += contentOffset;
 
         refreshButton.Text = "Refresh";
-        refreshButton.Location = new Point(675, 230 + contentOffset);
+        refreshButton.Location = new Point(675, 250 + contentOffset);
         refreshButton.Size = new Size(100, 29);
         refreshButton.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
         refreshToolTip.SetToolTip(refreshButton,
             "Recheck dependencies and detect PATH changes without restarting.");
         refreshButton.Click += async (_, _) => await RefreshDependenciesAsync();
         closeButton.Text = "Close";
-        closeButton.Location = new Point(785, 230 + contentOffset);
+        closeButton.Location = new Point(785, 250 + contentOffset);
         closeButton.Size = new Size(100, 29);
         closeButton.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
         closeButton.DialogResult = DialogResult.Cancel;
         closeButton.Click += (_, _) => Close();
         copyDiagnosticsButton.Text = "Copy Diagnostics";
-        copyDiagnosticsButton.Location = new Point(15, 230 + contentOffset);
+        copyDiagnosticsButton.Location = new Point(15, 250 + contentOffset);
         copyDiagnosticsButton.Size = new Size(140, 29);
         copyDiagnosticsButton.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
         copyDiagnosticsButton.Enabled = false;
         copyDiagnosticsButton.Click += (_, _) => CopyDiagnostics();
         refreshToolTip.SetToolTip(copyDiagnosticsButton,
             "Copy dependency and system information for troubleshooting.");
-        copyFeedbackLabel.Location = new Point(170, 230 + contentOffset);
+        copyFeedbackLabel.Location = new Point(170, 250 + contentOffset);
         copyFeedbackLabel.Size = new Size(485, 29);
         copyFeedbackLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         copyFeedbackLabel.TextAlign = ContentAlignment.MiddleLeft;
@@ -140,8 +171,26 @@ internal sealed class DependencyDialog : Form
         };
         AcceptButton = closeButton;
         CancelButton = closeButton;
+        // Optional button redesign: uncomment this block and StyleActionButton below to reenable.
+        /*
+        copyDiagnosticsButton.Height = 34;
+        refreshButton.Height = 34;
+        closeButton.Height = 34;
+        copyFeedbackLabel.Height = 34;
+        closeButton.Font = dependencyNameFont;
+        StyleActionButton(copyDiagnosticsButton);
+        StyleActionButton(refreshButton);
+        StyleActionButton(closeButton, primary: true);
+        */
+        var footerDivider = new Panel
+        {
+            Location = new Point(15, 232 + contentOffset),
+            Size = new Size(870, 1),
+            BackColor = dependencyGrid.GridColor,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+        };
         Controls.AddRange([dependencyGrid, summaryLabel, detailsToggle, detailsTextBox, noteLabel,
-            rgLink, rgaLink, copyDiagnosticsButton, copyFeedbackLabel, refreshButton, closeButton]);
+            rgLink, rgaLink, footerDivider, copyDiagnosticsButton, copyFeedbackLabel, refreshButton, closeButton]);
         Shown += async (_, _) => await RefreshDependenciesAsync();
         FormClosing += (_, _) =>
         {
@@ -156,6 +205,7 @@ internal sealed class DependencyDialog : Form
         {
             copyFeedbackTimer.Dispose();
             refreshToolTip.Dispose();
+            dependencyNameFont.Dispose();
         }
         base.Dispose(disposing);
     }
@@ -189,7 +239,8 @@ internal sealed class DependencyDialog : Form
         rgaLink.Visible = false;
         detailsTextBox.Clear();
         summaryLabel.Text = "Checking dependencies…";
-        summaryLabel.ForeColor = SystemColors.ControlText;
+        summaryStatus = null;
+        summaryLabel.Padding = Padding.Empty;
         dependencyGrid.Rows.Clear();
         foreach (DependencyDefinition dependency in DependencyChecker.Dependencies)
             dependencyGrid.Rows.Add(dependency.DisplayName, "Checking…", "—", "—");
@@ -228,24 +279,22 @@ internal sealed class DependencyDialog : Form
             int index = dependencyGrid.Rows.Add(result.Dependency.DisplayName, status,
                 result.Version ?? "—", result.ExecutablePath ?? "—");
             dependencyGrid.Rows[index].Cells["Status"].Tag = result.Status;
-            dependencyGrid.Rows[index].Cells["Status"].Style.ForeColor = result.Status switch
-            {
-                DependencyStatus.Installed => Color.DarkGreen,
-                DependencyStatus.NotFound => Color.DarkOrange,
-                _ => Color.Firebrick
-            };
             dependencyGrid.Rows[index].Cells["ExecutablePath"].ToolTipText = result.ExecutablePath ?? result.Details;
         }
         DependencyCheckResult[] problems = results.Where(result => result.Status != DependencyStatus.Installed).ToArray();
         summaryLabel.Text = problems.Length == 0
-            ? "✅ All dependencies are available."
+            ? "All dependencies are available."
             : problems.Any(result => result.Status == DependencyStatus.Error)
-                ? "⚠ Some dependencies could not be checked."
-                : "⚠ Some dependencies are missing.";
-        summaryLabel.ForeColor = problems.Length == 0 ? Color.DarkGreen : Color.Firebrick;
+                ? "Some dependencies could not be checked."
+                : "Some dependencies are missing.";
+        summaryStatus = problems.Length == 0 ? DependencyStatus.Installed
+            : problems.Any(result => result.Status == DependencyStatus.Error) ? DependencyStatus.Error : DependencyStatus.NotFound;
+        summaryLabel.Padding = new Padding(24 * DeviceDpi / 96, 0, 0, 0);
+        summaryLabel.Invalidate();
         detailsToggle.Visible = problems.Length > 0;
         detailsTextBox.Text = string.Join("\r\n\r\n", problems.Select(result =>
             $"{result.Dependency.DisplayName}: {result.Details}"));
+        dependencyGrid.ClearSelection();
     }
 
     private void CopyDiagnostics()
@@ -314,8 +363,9 @@ internal sealed class DependencyDialog : Form
 
         e.Paint(e.ClipBounds, e.PaintParts & ~DataGridViewPaintParts.ContentForeground);
         int iconSize = Math.Min(16 * dependencyGrid.DeviceDpi / 96, e.CellBounds.Height - 4);
-        int spacing = Math.Max(3, 4 * dependencyGrid.DeviceDpi / 96);
-        var iconBounds = new Rectangle(e.CellBounds.Left + spacing,
+        int spacing = Math.Max(3, 6 * dependencyGrid.DeviceDpi / 96);
+        int inset = Math.Max(4, 8 * dependencyGrid.DeviceDpi / 96);
+        var iconBounds = new Rectangle(e.CellBounds.Left + inset,
             e.CellBounds.Top + (e.CellBounds.Height - iconSize) / 2, iconSize, iconSize);
         GraphicsState savedState = e.Graphics.Save();
         try
@@ -335,6 +385,32 @@ internal sealed class DependencyDialog : Form
         e.Handled = true;
     }
 
+    private void PaintSummaryIcon(object? sender, PaintEventArgs e)
+    {
+        if (summaryStatus is not DependencyStatus status)
+            return;
+        int size = 16 * DeviceDpi / 96;
+        GraphicsState savedState = e.Graphics.Save();
+        try { DrawStatusIcon(e.Graphics, new Rectangle(0, (summaryLabel.Height - size) / 2, size, size), status); }
+        finally { e.Graphics.Restore(savedState); }
+    }
+
+    // Optional button redesign; see the matching constructor block above.
+    /*
+    private static void StyleActionButton(Button button, bool primary = false)
+    {
+        if (SystemInformation.HighContrast)
+            return;
+        button.FlatStyle = FlatStyle.Flat;
+        button.UseVisualStyleBackColor = false;
+        button.BackColor = primary ? Color.FromArgb(32, 32, 32) : SystemColors.Window;
+        button.ForeColor = primary ? Color.White : SystemColors.WindowText;
+        button.FlatAppearance.BorderColor = primary ? button.BackColor : Color.FromArgb(210, 210, 210);
+        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(60, 60, 60) : Color.FromArgb(245, 245, 245);
+        button.FlatAppearance.MouseDownBackColor = primary ? Color.Black : Color.FromArgb(232, 232, 232);
+    }
+    */
+
     private static void DrawStatusIcon(Graphics graphics, Rectangle bounds, DependencyStatus status)
     {
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -346,9 +422,10 @@ internal sealed class DependencyDialog : Form
         using var errorPen = new Pen(Color.Firebrick, Math.Max(1.5F, size / 8));
         if (status == DependencyStatus.Installed)
         {
-            using var greenBrush = new SolidBrush(Color.ForestGreen);
-            graphics.FillRectangle(greenBrush, x, y, size, size);
-            graphics.DrawLines(whitePen, [At(0.18F, 0.5F), At(0.4F, 0.73F), At(0.82F, 0.25F)]);
+            using var greenPen = new Pen(SystemInformation.HighContrast ? SystemColors.WindowText : Color.ForestGreen,
+                Math.Max(1.5F, size / 8));
+            graphics.DrawEllipse(greenPen, x, y, size, size);
+            graphics.DrawLines(greenPen, [At(0.23F, 0.5F), At(0.43F, 0.7F), At(0.77F, 0.3F)]);
         }
         else if (status == DependencyStatus.NotFound)
         {
