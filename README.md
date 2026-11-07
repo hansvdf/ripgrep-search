@@ -12,12 +12,36 @@
 - **Convenient controls:** Show or hide search options and the generated command independently. Hidden options retain their selected values and remain active.
 - **Saved preferences:** Remember the last 10 folders, last 20 search patterns, context counts, sorting choices, visibility settings, and `rga` mode.
 - **Explorer integration:** Launch searches from the Windows Explorer address bar or an optional right-click menu.
+- **Dependency checker:** Verify installed tools, versions, and executable paths through **Help → Check Dependencies**.
 
 ## Requirements
 
 - Windows 10 or Windows 11.
-- **Required:** `rg.exe` accessible through `PATH` for normal searches.
-- **Optional:** `rga.exe` accessible through `PATH` for document searches. Some `rga` formats require additional converter programs.
+
+## External Dependencies
+
+- **ripgrep (`rg`):** Required for standard text and regex searches. It must be accessible through `PATH`.
+- **ripgrep-all (`rga`):** Optional. Enable **Search Office/PDF files with rga** to search supported document and archive formats. This mode requires `rga`, the `rg` backend it invokes, and any converters needed for the selected formats (for example, `pandoc` for DOCX or `pdftotext` for PDF). Supported formats depend on the installed rga adapters and converters.
+
+These tools are external to Ripgrep Search and are not bundled by the publish script. The application currently uses PATH-based resolution; it has no separate configured tool paths.
+
+### Check dependencies in the application
+
+Choose **Help → Check Dependencies**. The dialog checks `rg` and `rga` in the background and displays each tool's status, detected version, and full resolved executable path:
+
+- **Installed:** The executable ran successfully with `--version` and returned recognizable version information for that tool.
+- **Not found:** The application's executable lookup could not find the tool on its current `PATH`.
+- **Error:** A path was found, but the executable could not run, returned a failure exit code or invalid version output, or timed out. The dialog keeps the resolved path visible and explains the error.
+
+Searches and dependency checks share the same executable resolver. If a package manager provides a shim or launcher, its path is shown because that is the executable the application invokes. A version check times out after five seconds. The checker verifies the two commands themselves; it does not verify every document converter or guarantee that every file format can be searched.
+
+When both tools are available, the dialog shows a single confirmation. Missing tools or errors show a summary with **Show details** to expand the diagnostic messages. Use **Refresh** to rerun the checks. Select a path cell and press **Ctrl+C** to copy the full path. An installation link appears only when its corresponding tool is **Not found** and opens that tool's official instructions; the checker does not install, download, or modify dependencies.
+
+Use **Copy Diagnostics** to copy a plain-text troubleshooting report with the application and Windows versions, plus each tool's latest checked status, version, executable path, and any diagnostic messages. Paths under your Windows user profile are replaced with `%USERPROFILE%` in the copied report, including paths in diagnostic messages. The dialog still displays full paths. Copying does not rerun checks or include an environment-variable dump. The button becomes available after the first completed check and uses the last completed results while a refresh is running.
+
+Opening the checker or clicking **Refresh** reloads the saved Windows system and current-user `PATH`, in that order. Checks and subsequent searches use the updated path without restarting Ripgrep Search. Environment-variable references in those paths are expanded using the latest saved values. Only this application's process environment is updated; Windows settings and other running applications are not modified.
+
+Refreshing replaces any session-only PATH customizations inherited from a launching terminal or IDE with the saved Windows PATH. If reading or rebuilding that path fails, the dialog reports the error and the application's previous PATH is kept.
 
 ### Install ripgrep (`rg`)
 
@@ -54,7 +78,7 @@ Tools installed through WinGet may already be on `PATH`. For manually installed 
 1. In the Windows Start menu, search for **Edit environment variables for your account**.
 2. Under **User variables**, select **Path** and click **Edit**.
 3. Click **New** and enter the **folder** containing `rg.exe` or `rga.exe` (not the full executable path).
-4. Save the changes and restart open terminals and Ripgrep Search.
+4. Save the changes. In Ripgrep Search, choose **Help → Check Dependencies**, then click **Refresh**. Open a new terminal for command-line verification.
 
 Open a **new** PowerShell or Command Prompt window to verify:
 
@@ -67,7 +91,7 @@ The second command is only needed if you installed `rga`. Normal `rg` searches s
 
 ## Install Ripgrep Search
 
-1. Open the repository's [Releases page](https://github.com/hansvdf/Ripgrep_Search/releases).
+1. Open the repository's [Releases page](https://github.com/hansvdf/ripgrep-search/releases).
 2. If a prebuilt Windows x64 ZIP archive is available, download it. Otherwise, follow **Build from source** below to create the executable.
 3. Extract it to a permanent folder, such as `C:\Tools\RipgrepSearch`.
 4. Install `rg` as described above. Install `rga` too if you want to search inside supported document formats.
@@ -109,6 +133,10 @@ Exports of cancelled, limited, or failed searches contain the results actually d
 
 ## Windows Explorer integration
 
+Explorer integration is optional. It opens Ripgrep Search with the selected folder or drive already entered in the Folder input, ready for you to enter a pattern and search. It does not run a search automatically.
+
+The address-bar method and the right-click menu are independent: the address-bar method uses `PATH`, while the right-click menu registers the executable's full path for the current Windows user.
+
 ### Launch from the address bar
 
 Add the directory containing `RipgrepSearch.exe` to your user `PATH` using the same procedure described above. Then open a folder in Windows Explorer, type `RipgrepSearch` in the address bar, and press Enter. The application opens with that folder selected.
@@ -121,7 +149,11 @@ RipgrepSearch "C:\Projects\Reports"
 
 ### Optional right-click menu
 
-After publishing from a source checkout, run `install-explorer-context-menu.bat`. By default, it registers the executable at `bin\Release\net8.0-windows\win-x64\publish\RipgrepSearch.exe` relative to the scripts.
+Use the integration scripts from a source checkout. First publish the application with `publish-single-exe.bat` and keep the executable at its intended location. The installer checks that the specified executable exists; `rg` and optional `rga` still need to be installed as described above.
+
+#### Install
+
+Run `install-explorer-context-menu.bat` from the source checkout. By default, it registers the executable at `bin\Release\net8.0-windows\win-x64\publish\RipgrepSearch.exe` relative to the scripts.
 
 If you keep the executable elsewhere, open PowerShell in the directory containing the installer scripts and supply its full path:
 
@@ -131,7 +163,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-explorer-conte
 
 Keep the executable at the registered location. The installer adds **Search with RipgrepSearch** to the context menu for folders, folder backgrounds, and drives.
 
-The installer uses the current user's registry (`HKCU`) and normally does not require administrator privileges. To remove the entries, run `uninstall-explorer-context-menu.bat` from the same package or checkout.
+The installer writes to the current user's registry (`HKCU\Software\Classes`) and normally does not require administrator privileges. The batch wrapper invokes its accompanying PowerShell script; keep both files together when using the wrapper. If you move the executable, rerun the installer with its new full path.
+
+#### Uninstall
+
+Run `uninstall-explorer-context-menu.bat` from the source checkout, or run the PowerShell script directly:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\uninstall-explorer-context-menu.ps1
+```
+
+The uninstaller removes the three current-user context-menu registrations. It does not delete the application, saved settings, or external dependencies, and normally does not require administrator privileges. To remove address-bar launching as well, remove the application's directory from your user `PATH`.
 
 ## Settings
 
@@ -181,7 +223,13 @@ dotnet run --project tests/RipgrepSearch.Tests/RipgrepSearch.Tests.csproj -c Rel
 
 `-c Release` selects the Release build configuration, which enables compiler optimizations. The command builds and runs the tests; it does not publish the application.
 
-The suite requires `rg` and `rga` on `PATH`, plus the rga converters for DOCX and PDF (`pandoc` and `pdftotext`). It checks parsing and Unicode offsets, engine compatibility, matching-line count equivalence with the previous text output, sorting, exports, cancellation, process failures, display limits, and offscreen WinForms rendering. Test inputs and application settings use isolated folders under the test build output; tests do not change the normal application settings.
+The suite requires `rg` and `rga` on `PATH`, plus the rga converters for DOCX and PDF (`pandoc` and `pdftotext`). It checks parsing and Unicode offsets, engine compatibility, matching-line count equivalence with the previous text output, sorting, exports, cancellation, process failures, display limits, and offscreen WinForms rendering. Dependency-checker tests cover installed and missing tools, unusable executables, invalid versions, failures, timeouts, refresh, path copying, and dialog closure. PATH-refresh tests simulate saved Windows settings to check additions, removals, ordering, environment-variable expansion, child-process inheritance, and refresh failures without modifying Windows environment settings. Test inputs and application settings use isolated folders under the test build output; tests do not change the normal application settings or install tools.
+
+To run only the dependency-checker scenarios:
+
+```powershell
+dotnet run --project tests/RipgrepSearch.Tests/RipgrepSearch.Tests.csproj -c Release -- --dependencies-only
+```
 
 ## License
 

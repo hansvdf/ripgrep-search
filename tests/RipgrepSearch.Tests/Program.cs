@@ -16,10 +16,19 @@ internal static class Tests
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--version")
+            return DependencyTests.FakeVersion();
         if (args.Length > 0 && args[0] == "--fake")
             return FakeProcess(args[1], args.Length > 2 ? args[2] : null);
         try
         {
+            if (args.Contains("--dependencies-only"))
+            {
+                passed += DependencyTests.RunAsync().GetAwaiter().GetResult();
+                passed += DependencyTests.RunUiTests();
+                Console.WriteLine($"PASS: {passed} dependency checks.");
+                return 0;
+            }
             if (args.Contains("--ui-only"))
             {
                 UiTests();
@@ -29,8 +38,10 @@ internal static class Tests
             ParserTests();
             Console.WriteLine($"Parser: {passed} checks passed. Running engine integration tests...");
             RunnerTests().GetAwaiter().GetResult();
+            passed += DependencyTests.RunAsync().GetAwaiter().GetResult();
             Console.WriteLine($"Parser/engines: {passed} checks passed. Running offscreen UI tests...");
             UiTests();
+            passed += DependencyTests.RunUiTests();
             Console.WriteLine($"PASS: {passed} checks.");
             return 0;
         }
