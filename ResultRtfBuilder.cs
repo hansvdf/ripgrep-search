@@ -45,6 +45,8 @@ internal static class ResultRtfBuilder
                     break;
                 case '\n': rtf.Append("\\par\n"); break;
                 case '\t': rtf.Append("\\tab "); break;
+                // Defensive handling for callers that supply spans directly.
+                case '\0': rtf.Append("\\u9216?"); break;
                 default:
                     if (character >= 32 && character < 127)
                         rtf.Append(character);

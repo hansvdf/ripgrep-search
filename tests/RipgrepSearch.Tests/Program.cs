@@ -107,6 +107,14 @@ internal static class Tests
         var unopenable = parser.Parse(invalidPath)[0];
         Check(unopenable.NavigationPath is null && unopenable.FilePath == "�", "invalid path bytes do not navigate to a replacement path");
         Check(new SearchResultFormatter().Format(unopenable)[0].IsFileHeading, "unopenable file retains heading semantics");
+        foreach (bool base64 in new[] { false, true })
+        {
+            var nul = parser.Parse(Message(Encoding.UTF8.GetBytes("before\0needle\0after\n"), [(7, 13)], base64))[0];
+            var nulSpans = new SearchResultFormatter().Format(nul);
+            Check(nul.Text == "before\0needle\0after", "structured text retains NUL characters");
+            Check(string.Concat(nulSpans.Select(s => s.Text)).Contains("before␀needle␀after") && !nulSpans.Any(s => s.Text.Contains('\0')), "formatted NUL markers shared by UI and exports");
+            Check(nulSpans.Single(s => s.Color == Color.OrangeRed).Text == "needle", "NUL representation preserves highlight offsets");
+        }
         var random = new Random(1729);
         for (int i = 0; i < 100; i++)
         {
@@ -241,6 +249,7 @@ internal static class Tests
         }
 
         string self = Environment.ProcessPath!;
+        await QuietStreamingTests(self, fixtures);
         foreach (string mode in new[] { "malformed", "truncated", "exit-error", "stderr-flood", "huge-json", "false-stats" })
         {
             var result = await Run(self, ["--fake", mode], mode == "huge-json" ? new SearchLimits(MaxJsonMessageCharacters: 1024) : null);
@@ -306,8 +315,54 @@ internal static class Tests
         }
     }
 
+    private static async Task QuietStreamingTests(string self, string fixtures)
+    {
+        foreach (bool cancelWhileQuiet in new[] { false, true })
+        {
+            string signal = Path.Combine(fixtures, "quiet-stream-" + cancelWhileQuiet);
+            var secondBatch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            int batches = 0;
+            Task<(SearchOutcome Outcome, List<SearchResultLine> Lines)> search = Run(self,
+                ["--fake", "quiet-stream", signal], token: cancellation.Token, onBatch: () =>
+                {
+                    if (++batches == 1)
+                        File.WriteAllText(signal + ".next", "go");
+                    else
+                        secondBatch.TrySetResult();
+                });
+            try
+            {
+                // The child emits a second record immediately after the first batch
+                // is acknowledged, then waits for us instead of ending the stream.
+                await secondBatch.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                Check(!search.IsCompleted && !File.Exists(signal + ".finish"), "quiet stream flushes without another message or process exit");
+                if (cancelWhileQuiet)
+                    cancellation.Cancel();
+            }
+            finally
+            {
+                File.WriteAllText(signal + ".finish", "finish");
+            }
+            var result = await search.WaitAsync(TimeSpan.FromSeconds(5));
+            Check(result.Lines.Count == 2 && result.Lines.Select(l => l.LineNumber).SequenceEqual(new long[] { 1, 2 }), "timed flush delivers each record exactly once in order");
+            Check(result.Outcome.Completion == (cancelWhileQuiet ? SearchCompletion.Cancelled : SearchCompletion.Completed), "quiet read completes or cancels cleanly");
+        }
+    }
+
     private static int FakeProcess(string mode, string? pidPath)
     {
+        if (mode == "quiet-stream")
+        {
+            Console.WriteLine(Message(Encoding.UTF8.GetBytes("needle one\n"), [(0, 6)]));
+            Console.Out.Flush();
+            WaitForSignal(pidPath! + ".next");
+            Console.WriteLine(Message(Encoding.UTF8.GetBytes("needle two\n"), [(0, 6)], lineNumber: 2));
+            Console.Out.Flush();
+            WaitForSignal(pidPath! + ".finish");
+            Console.WriteLine("{\"type\":\"summary\",\"data\":{}}");
+            return 0;
+        }
         if (mode == "wait-child") { Thread.Sleep(60_000); return 0; }
         if (mode == "child-parent")
         {
@@ -335,6 +390,17 @@ internal static class Tests
         if (mode is "stderr-flood" or "false-stats")
             Console.WriteLine("{\"type\":\"summary\",\"data\":{\"stats\":{\"matched_lines\":999,\"matches\":888}}}");
         return 0;
+    }
+
+    private static void WaitForSignal(string path)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (!File.Exists(path))
+        {
+            if (elapsed.Elapsed > TimeSpan.FromSeconds(10))
+                throw new TimeoutException("Test signal did not arrive: " + path);
+            Thread.Sleep(1);
+        }
     }
 
     private static async Task DocumentTests(string fixtures)
@@ -473,6 +539,50 @@ internal static class Tests
         pattern.Text = "[";
         Pump(StartSearch(form));
         Check(Field<Label>(form, "statusLabel").Text.Contains("exit code 2") && output.Text.Contains("regex parse error"), "invalid regex displayed without crashing");
+
+        string nulFolder = Path.Combine(fixtures, "nul-input");
+        Directory.CreateDirectory(nulFolder);
+        File.WriteAllText(Path.Combine(nulFolder, "a-normal.txt"), "needle normal\n");
+        File.WriteAllBytes(Path.Combine(nulFolder, "b-nul.txt"), Encoding.UTF8.GetBytes("café 😀 before\0needle\0after\n"));
+        File.WriteAllText(Path.Combine(nulFolder, "c-normal.txt"), "needle normal\n");
+        string configPath = Path.Combine(fixtures, "text-mode.conf");
+        File.WriteAllText(configPath, "--text\n");
+        string? previousConfig = Environment.GetEnvironmentVariable("RIPGREP_CONFIG_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("RIPGREP_CONFIG_PATH", configPath);
+            Field<ComboBox>(form, "folderComboBox").Text = nulFolder;
+            pattern.Text = "needle";
+            foreach (bool useRga in new[] { false, true })
+            {
+                Field<CheckBox>(form, "useRipgrepAllCheckBox").Checked = useRga;
+                Pump(StartSearch(form));
+                report = Field<SearchReport>(form, "searchReport");
+                Check(report.Status == "Search completed. 3 matching line(s) found." && report.Results.Count == 3, "NUL input does not abort rg/rga folder searches");
+                Check(report.Results.Single(l => l.FilePath.EndsWith("b-nul.txt")).Text.Contains('\0'), "end-to-end structured result retains original NUL bytes");
+                Check(output.Text.Contains("before␀needle␀after") && !output.Text.Contains('\0'), "NUL input renders visible markers without partial insertion");
+                Check(output.Text.Replace("\r\n", "\n") == string.Concat(report.Spans.Select(s => s.Text)).Replace("\r\n", "\n"), "NUL result visual/export spans match displayed text");
+                int nulMatch = output.Text.IndexOf("before␀needle", StringComparison.Ordinal) + "before␀".Length;
+                output.Select(nulMatch, 6);
+                Check(output.SelectedText == "needle" && output.SelectionColor.ToArgb() == Color.OrangeRed.ToArgb(), "highlights after NUL and emoji remain aligned");
+                map = Field<Dictionary<int, string>>(form, "fileLineMap");
+                Check(map.Count == 3 && map.All(item => output.Lines[item.Key] == item.Value), "filename links after NUL results remain aligned");
+                string nulHtml = ResultsExporter.ToHtml(report);
+                string nulMarkdown = ResultsExporter.ToMarkdown(report);
+                Check(WebUtility.HtmlDecode(Regex.Replace(nulHtml, "<[^>]+>", "")).Contains("before␀needle␀after") && !nulHtml.Contains('\0'), "HTML export preserves NUL presentation");
+                Check(nulMarkdown.Contains("before␀needle␀after") && !nulMarkdown.Contains('\0'), "Markdown export preserves NUL presentation");
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("RIPGREP_CONFIG_PATH", previousConfig);
+        }
+        using (var directNul = new RichTextBox())
+        {
+            directNul.SelectedRtf = ResultRtfBuilder.Build([new ResultSpan("before\0needle\r\n", Color.White, FontStyle.Regular)]);
+            Check(directNul.Text == "before␀needle\n", "RTF builder handles direct NUL spans defensively");
+        }
+        Field<CheckBox>(form, "useRipgrepAllCheckBox").Checked = false;
 
         string stressFolder = Path.Combine(fixtures, "nested-repeat");
         Directory.CreateDirectory(stressFolder);

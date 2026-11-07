@@ -76,29 +76,62 @@ internal static class SearchRunner
                 ThreadPool.QueueUserWorkItem(_ => StopProcess(process));
             });
             errorTask = ReadDiagnosticsAsync(process.StandardError);
-            await foreach (string json in ReadMessagesAsync(process.StandardOutput,
-                limits.MaxJsonMessageCharacters, cancellationToken).ConfigureAwait(false))
+            await using var messages = ReadMessagesAsync(process.StandardOutput,
+                limits.MaxJsonMessageCharacters, cancellationToken).GetAsyncEnumerator();
+            Task<bool>? nextMessage = null;
+            try
             {
-                foreach (SearchResultLine line in parser.Parse(json, cancellationToken))
+                while (true)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (line.Text.Length > limits.MaxLineCharacters)
-                        throw new DisplayLimitException($"A result line exceeds {limits.MaxLineCharacters:N0} characters.");
-                    if (totalLines >= limits.MaxLines)
-                        throw new DisplayLimitException($"The {limits.MaxLines:N0}-line display limit was reached.");
-                    int size = line.Text.Length + line.FilePath.Length + 32;
-                    if (size > limits.MaxCharacters - totalCharacters)
-                        throw new DisplayLimitException($"The {limits.MaxCharacters:N0}-character display limit was reached.");
-                    totalCharacters += size;
-                    totalLines++;
-                    batch.Add(line);
-                    batchCharacters += size;
-                    if (batch.Count >= 128 || batchCharacters >= 65_536)
+                    nextMessage ??= messages.MoveNextAsync().AsTask();
+                    if (batch.Count > 0 && !nextMessage.IsCompleted)
+                    {
+                        int remaining = (int)Math.Max(0, 50 - batchAge.ElapsedMilliseconds);
+                        using var timerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        Task deadline = Task.Delay(remaining, timerCancellation.Token);
+                        Task ready = await Task.WhenAny(nextMessage, deadline).ConfigureAwait(false);
+                        timerCancellation.Cancel();
+                        if (ready == deadline)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            await FlushAsync().ConfigureAwait(false);
+                            continue; // Reuse the same pending read; never read concurrently.
+                        }
+                    }
+                    if (!await nextMessage.ConfigureAwait(false))
+                        break;
+                    nextMessage = null;
+
+                    foreach (SearchResultLine line in parser.Parse(messages.Current, cancellationToken))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (line.Text.Length > limits.MaxLineCharacters)
+                            throw new DisplayLimitException($"A result line exceeds {limits.MaxLineCharacters:N0} characters.");
+                        if (totalLines >= limits.MaxLines)
+                            throw new DisplayLimitException($"The {limits.MaxLines:N0}-line display limit was reached.");
+                        int size = line.Text.Length + line.FilePath.Length + 32;
+                        if (size > limits.MaxCharacters - totalCharacters)
+                            throw new DisplayLimitException($"The {limits.MaxCharacters:N0}-character display limit was reached.");
+                        totalCharacters += size;
+                        totalLines++;
+                        batch.Add(line);
+                        batchCharacters += size;
+                        if (batch.Count >= 128 || batchCharacters >= 65_536)
+                            await FlushAsync().ConfigureAwait(false);
+                    }
+                    if (batch.Count > 0 && batchAge.ElapsedMilliseconds >= 50)
                         await FlushAsync().ConfigureAwait(false);
                 }
-                // Small searches should become visible before process exit, too.
-                if (batch.Count > 0 && batchAge.ElapsedMilliseconds >= 50)
-                    await FlushAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                // Async iterators cannot be disposed during an active MoveNext.
+                // Cancellation also cancels that read; observe it before disposal.
+                if (nextMessage is not null)
+                {
+                    try { await nextMessage.ConfigureAwait(false); }
+                    catch (Exception) when (cancellationToken.IsCancellationRequested) { }
+                }
             }
             await FlushAsync().ConfigureAwait(false);
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);

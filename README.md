@@ -87,6 +87,8 @@ Highlights use the match positions reported by `rg` or `rga` through `--json`, i
 
 During a search, **Search** becomes **Cancel**. Cancelling or closing the window stops the search and its converter processes. Results appear in batches while the interface remains available.
 
+Small batches are also flushed while the search process pauses between results. Embedded NUL characters are displayed as **␀** in results and exports; the structured search data keeps the original characters and match positions.
+
 The completion count is the number of matching output lines, not the number of individual occurrences. Multiple matches on one line count once. For `rga`, these are lines in the converted document text.
 
 To keep large searches manageable, the application stops at 10,000 result lines (including context), an approximately 2,000,000-character result budget (including paths and formatting allowance), a result line longer than 16,384 characters, or a JSON message longer than 4,194,304 characters. When a limit is reached, the displayed count is explicitly partial. Refine the search to reduce the result set.

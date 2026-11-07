@@ -9,12 +9,15 @@ internal sealed class SearchResultFormatter
 
     public IReadOnlyList<ResultSpan> Format(SearchResultLine line)
     {
+        // Keep raw result data intact. A one-character visible NUL marker is
+        // safe for RichEdit and exports, without shifting UTF-16 match offsets.
+        string text = line.Text.Replace('\0', '\u2400');
         var spans = new List<ResultSpan>();
         if (!string.Equals(previousFile, line.FilePath, StringComparison.Ordinal))
         {
             if (previousFile is not null)
                 spans.Add(new ResultSpan("\r\n", Color.White, FontStyle.Regular));
-            spans.Add(new ResultSpan(line.FilePath + "\r\n", Color.DeepSkyBlue,
+            spans.Add(new ResultSpan(line.FilePath.Replace('\0', '\u2400') + "\r\n", Color.DeepSkyBlue,
                 FontStyle.Bold | FontStyle.Underline, line.NavigationPath, IsFileHeading: true));
         }
         else if (line.LineNumber > previousLine + 1)
@@ -47,13 +50,13 @@ internal sealed class SearchResultFormatter
                 if (end <= start)
                     continue;
                 if (start > position)
-                    spans.Add(new ResultSpan(line.Text[position..start], Color.White, FontStyle.Regular));
-                spans.Add(new ResultSpan(line.Text[start..end], Color.OrangeRed, FontStyle.Bold));
+                    spans.Add(new ResultSpan(text[position..start], Color.White, FontStyle.Regular));
+                spans.Add(new ResultSpan(text[start..end], Color.OrangeRed, FontStyle.Bold));
                 position = end;
             }
         }
-        if (position < line.Text.Length)
-            spans.Add(new ResultSpan(line.Text[position..], Color.White, FontStyle.Regular));
+        if (position < text.Length)
+            spans.Add(new ResultSpan(text[position..], Color.White, FontStyle.Regular));
         spans.Add(new ResultSpan("\r\n", Color.White, FontStyle.Regular));
         return spans;
     }
