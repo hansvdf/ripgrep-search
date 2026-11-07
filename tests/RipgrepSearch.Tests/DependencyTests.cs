@@ -242,6 +242,7 @@ internal static class DependencyTests
         SummaryUiTests();
         DiagnosticsUiTests();
         DiagnosticRedactionTests();
+        KeyboardUiTests();
 
         using (var main = new MainForm(fixtures, Path.Combine(fixtures, "launch-settings")))
         {
@@ -474,6 +475,65 @@ internal static class DependencyTests
         Check(DependencyDialog.RedactUserProfile(otherPaths, null) == otherPaths &&
             DependencyDialog.RedactUserProfile(otherPaths, "") == otherPaths,
             "an unavailable profile never replaces empty strings");
+    }
+
+    private static void KeyboardUiTests()
+    {
+        DependencyCheckResult[] installed = DependencyChecker.Dependencies.Select(dependency =>
+            new DependencyCheckResult(dependency, DependencyStatus.Installed, "1.2.3",
+                Path.Combine(fixtures, dependency.ExecutableName + ".exe"), string.Empty)).ToArray();
+        void ShowOffscreen(DependencyDialog dialog)
+        {
+            dialog.StartPosition = FormStartPosition.Manual;
+            dialog.Location = new System.Drawing.Point(-32000, -32000);
+            dialog.ShowInTaskbar = false;
+            dialog.Show();
+            Application.DoEvents();
+        }
+        // Route the key through the focused control, as the dialog-key pipeline does.
+        // Sending it straight to the Form would miss the grid consuming Enter.
+        bool PressDialogKey(DependencyDialog dialog, Keys key) =>
+            (bool)typeof(Control).GetMethod("ProcessDialogKey", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(dialog.ActiveControl ?? dialog, [key])!;
+
+        foreach (Keys key in new[] { Keys.Enter, Keys.Escape })
+        {
+            using var dialog = new DependencyDialog(_ => Task.FromResult(installed));
+            ShowOffscreen(dialog);
+            Check(dialog.ActiveControl == Field<Button>(dialog, "closeButton"), "Close has initial keyboard focus after checks: " + key);
+            Check(PressDialogKey(dialog, key) && dialog.IsDisposed, "focused dialog key closes the dialog: " + key);
+        }
+
+        bool cancelled = false;
+        using (var checking = new DependencyDialog(async token =>
+        {
+            try { await Task.Delay(Timeout.Infinite, token); }
+            catch (OperationCanceledException) { cancelled = true; throw; }
+            return [];
+        }))
+        {
+            ShowOffscreen(checking);
+            Check(checking.ActiveControl == Field<Button>(checking, "closeButton") &&
+                !Field<Button>(checking, "refreshButton").Enabled, "Close has focus while checks are still running");
+            Check(PressDialogKey(checking, Keys.Enter) && checking.IsDisposed, "Enter closes immediately during dependency checks");
+            PumpUntil(() => cancelled);
+            Check(cancelled, "closing with Enter cancels in-progress checks");
+        }
+
+        var pending = new TaskCompletionSource<DependencyCheckResult[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using (var navigating = new DependencyDialog(token => pending.Task.WaitAsync(token)))
+        {
+            ShowOffscreen(navigating);
+            var grid = Field<DataGridView>(navigating, "dependencyGrid");
+            navigating.ActiveControl = grid;
+            pending.SetResult(installed);
+            PumpUntil(() => Field<Button>(navigating, "refreshButton").Enabled);
+            Check(navigating.ActiveControl == grid, "completed checks do not steal focus after the user selects the table");
+            grid.CurrentCell = grid.Rows[0].Cells["ExecutablePath"];
+            grid.CurrentCell.Selected = true;
+            Check(grid.GetClipboardContent()?.GetText() == installed[0].ExecutablePath, "keyboard focus changes preserve path selection and copying");
+            Check(PressDialogKey(navigating, Keys.Escape) && navigating.IsDisposed, "Escape still closes when the table has focus");
+        }
     }
 
     private static T Field<T>(Form form, string name) =>

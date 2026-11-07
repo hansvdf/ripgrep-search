@@ -191,7 +191,11 @@ internal sealed class DependencyDialog : Form
         };
         Controls.AddRange([dependencyGrid, summaryLabel, detailsToggle, detailsTextBox, noteLabel,
             rgLink, rgaLink, footerDivider, copyDiagnosticsButton, copyFeedbackLabel, refreshButton, closeButton]);
-        Shown += async (_, _) => await RefreshDependenciesAsync();
+        Shown += async (_, _) =>
+        {
+            closeButton.Select();
+            await RefreshDependenciesAsync();
+        };
         FormClosing += (_, _) =>
         {
             closing = true;
