@@ -127,10 +127,24 @@ internal static class DependencyTests
         Check(WindowsPathEnvironment.BuildPath(cycle, new Hashtable(), process).Contains("%LOOP_A%"), "cyclic environment references do not loop forever");
         Check(WindowsPathEnvironment.BuildPath(new Hashtable(), new Hashtable { ["PATH"] = "%UNDEFINED_VARIABLE%" }, new Hashtable()) == "%UNDEFINED_VARIABLE%", "unknown references remain unresolved");
         Check(!WindowsPathEnvironment.BuildPath(new Hashtable { ["PATH"] = "fresh-system" }, new Hashtable { ["PATH"] = "%PATH%;fresh-user" }, process).Contains("stale"), "PATH self reference uses fresh machine path");
+        Check(WindowsPathEnvironment.BuildPath(new Hashtable(), new Hashtable { ["PATH"] = "%USER_TOOLS%" }, process) == "%USER_TOOLS%",
+            "deleted saved user variable cannot fall back to its inherited value");
+        Check(WindowsPathEnvironment.BuildPath(new Hashtable { ["PATH"] = "%USER_TOOLS%" }, new Hashtable(), process) == "%USER_TOOLS%",
+            "deleted saved system variable cannot fall back to its inherited value");
+        var nestedUser = new Hashtable { ["PATH"] = "%PARENT_TOOLS%", ["PARENT_TOOLS"] = "%USER_TOOLS%\\bin" };
+        Check(WindowsPathEnvironment.BuildPath(new Hashtable(), nestedUser, process) == @"%USER_TOOLS%\bin",
+            "nested references do not restore deleted variables");
+        Check(WindowsPathEnvironment.BuildPath(new Hashtable { ["PATH"] = "%SystemRoot%\\System32" },
+            new Hashtable { ["PATH"] = "%userprofile%\\tools" }, process) == @"C:\Windows\System32;" + fixtures + @"\tools",
+            "Windows-generated variables remain available without saved registry entries");
+        Check(WindowsPathEnvironment.BuildPath(new Hashtable(), new Hashtable { ["PATH"] = "%USERPROFILE%\\tools", ["USERPROFILE"] = @"C:\saved-profile" }, process) ==
+            @"C:\saved-profile\tools", "current saved values take precedence over inherited Windows defaults");
 
         string refreshedTools = CreateTools("refreshed tools", true, true, "record-path");
         string neither = Path.Combine(fixtures, "neither");
         string? originalPath = Environment.GetEnvironmentVariable("PATH");
+        const string toolVariable = "RIPGREP_SEARCH_TEST_TOOLS";
+        string? originalToolVariable = Environment.GetEnvironmentVariable(toolVariable);
         try
         {
             var machineValues = new Hashtable { ["PATH"] = neither };
@@ -159,13 +173,36 @@ internal static class DependencyTests
             userValues.Clear();
             result = await Refresh();
             Check(result.All(item => item.Status == DependencyStatus.NotFound) && ExecutableResolver.ResolveSearchTool(false) is null, "removed Windows PATH entries are no longer used");
+
+            // Simulate a variable inherited at launch, then deleted from Windows settings.
+            // Only this test process is changed; no user/machine settings are written.
+            Environment.SetEnvironmentVariable(toolVariable, refreshedTools, EnvironmentVariableTarget.Process);
+            foreach (var savedValues in new[] { userValues, machineValues })
+            {
+                savedValues["PATH"] = "%" + toolVariable + "%";
+                savedValues[toolVariable] = refreshedTools;
+                result = await Refresh();
+                Check(result.All(item => item.Status == DependencyStatus.Installed), "saved tool variable is used before deletion");
+                savedValues.Remove(toolVariable);
+                result = await Refresh();
+                Check(result.All(item => item.Status == DependencyStatus.NotFound), "deleting a saved tool variable removes both dependencies on refresh");
+                Check(ExecutableResolver.ResolveSearchTool(false) is null && ExecutableResolver.ResolveSearchTool(true) is null &&
+                    !Environment.GetEnvironmentVariable("PATH")!.Contains(refreshedTools), "subsequent searches cannot use the deleted variable's directory");
+                Check(Environment.GetEnvironmentVariable(toolVariable) == refreshedTools,
+                    "refresh ignores the stale inherited variable without modifying unrelated process variables");
+                savedValues.Clear();
+            }
             string? previousPath = Environment.GetEnvironmentVariable("PATH");
             bool rejected = false;
             try { WindowsPathEnvironment.RefreshProcessPath(new Hashtable { ["PATH"] = new string('x', 32_767) }, new Hashtable(), process); }
             catch (InvalidOperationException) { rejected = true; }
             Check(rejected && Environment.GetEnvironmentVariable("PATH") == previousPath, "failed PATH rebuild keeps prior process PATH");
         }
-        finally { Environment.SetEnvironmentVariable("PATH", originalPath, EnvironmentVariableTarget.Process); }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", originalPath, EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable(toolVariable, originalToolVariable, EnvironmentVariableTarget.Process);
+        }
     }
 
     public static int RunUiTests()

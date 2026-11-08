@@ -8,6 +8,19 @@ internal static class WindowsPathEnvironment
 {
     private const int MaximumPathLength = 32_766;
     private static readonly Regex VariableReference = new("%([^%]+)%", RegexOptions.NonBacktracking);
+    // Windows generates these at logon; they need not appear in the saved
+    // Environment registry keys. Do not inherit arbitrary saved/session variables:
+    // a deleted saved variable can still exist in this process's old environment.
+    private static readonly HashSet<string> WindowsGeneratedVariables = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SystemRoot", "SystemDrive", "windir", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+        "APPDATA", "LOCALAPPDATA", "ALLUSERSPROFILE", "ProgramData", "PUBLIC",
+        "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "CommonProgramFiles",
+        "CommonProgramFiles(x86)", "CommonProgramW6432", "USERNAME", "USERDOMAIN",
+        "USERDOMAIN_ROAMINGPROFILE", "USERDNSDOMAIN", "COMPUTERNAME", "LOGONSERVER",
+        "OS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "PROCESSOR_IDENTIFIER",
+        "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "NUMBER_OF_PROCESSORS", "SESSIONNAME"
+    };
 
     public static string RefreshProcessPath() => RefreshProcessPath(
         ReadSavedEnvironment(Registry.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
@@ -41,8 +54,9 @@ internal static class WindowsPathEnvironment
     internal static string BuildPath(IDictionary machine, IDictionary user, IDictionary process)
     {
         var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        Overlay(process);
-        variables.Remove("PATH"); // Do not resurrect stale entries from the inherited PATH.
+        foreach (DictionaryEntry entry in process)
+            if (entry.Key is string name && entry.Value is string value && WindowsGeneratedVariables.Contains(name))
+                variables[name] = value;
         Overlay(machine);
         string machinePath = variables.GetValueOrDefault("PATH", string.Empty);
         variables.Remove("PATH");

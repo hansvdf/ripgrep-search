@@ -41,6 +41,8 @@ Use **Copy Diagnostics** to copy a plain-text troubleshooting report with the ap
 
 Opening the checker or clicking **Refresh** reloads the saved Windows system and current-user `PATH`, in that order. Checks and subsequent searches use the updated path without restarting Ripgrep Search. Environment-variable references in those paths are expanded using the latest saved values. Only this application's process environment is updated; Windows settings and other running applications are not modified.
 
+Custom variables referenced by `PATH` must be present in the saved system or user settings. Deleted or unknown custom references remain unresolved rather than using stale inherited values. Windows-generated variables such as `USERPROFILE` and `SystemRoot` remain available as fallbacks.
+
 Refreshing replaces any session-only PATH customizations inherited from a launching terminal or IDE with the saved Windows PATH. If reading or rebuilding that path fails, the dialog reports the error and the application's previous PATH is kept.
 
 ### Install ripgrep (`rg`)
