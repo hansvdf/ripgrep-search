@@ -9,7 +9,7 @@
 - **Readable results:** Dark results pane with highlighted matches, colored filenames and line numbers; double-click a filename to open it in its default Windows application.
 - **Sorting:** Optionally sort files by path, modification time, access time, or creation time, in ascending (`--sort`) or descending (`--sortr`) order.
 - **Export:** Save search results as HTML (with highlighting and file links) or Markdown.
-- **Convenient controls:** Show or hide search options and the generated command independently. Hidden options retain their selected values and remain active.
+- **View menu:** Show or hide search options and the generated command independently. Hidden options retain their selected values and remain active.
 - **Saved preferences:** Remember the last 10 folders, last 20 search patterns, context counts, sorting choices, visibility settings, and `rga` mode.
 - **Explorer integration:** Launch searches from the Windows Explorer address bar or an optional right-click menu.
 - **Dependency checker:** Verify installed tools, versions, and executable paths through **Help → Check Dependencies**.
@@ -107,7 +107,7 @@ Select a folder, enter a search pattern, and start the search. Regular expressio
 
 Select **Search Office/PDF files with rga** to use `rga` instead of `rg`. Leave it unchecked for normal text-file searches. If `rga` is unavailable, the application displays an error rather than switching silently to `rg`.
 
-Use **Show search options** and **Show command** to control how much space the options and generated command occupy. The command preview updates as search settings change.
+Use **View → Show Search Options** and **View → Show Command** to toggle the two sections independently. A checkmark indicates a visible section, and the results area expands when a section is hidden. Search options are shown and the command is hidden by default. The command preview continues to update as search settings change, including while hidden.
 
 Highlights use the match positions reported by `rg` or `rga` through `--json`, including case-insensitive and Unicode matches. The application does not run the search pattern through a second regex engine. Zero-length matches count as matching lines but do not color an unrelated character.
 
@@ -184,6 +184,8 @@ Preferences and recent search history are saved in:
 ```text
 %APPDATA%\RipgrepSearch\settings.json
 ```
+
+The View menu saves its choices immediately using the existing `ShowSearchOptions` and `ShowCommand` settings. Existing saved choices are preserved; when preferences are missing, search options are shown and the command is hidden.
 
 ## Build from source
 

@@ -52,7 +52,7 @@ internal sealed class AppSettings
 {
     public List<string> FolderHistory { get; set; } = [];
     public List<string> SearchHistory { get; set; } = [];
-    public bool ShowCommand { get; set; } = true;
+    public bool ShowCommand { get; set; } = false;
     public bool ShowSearchOptions { get; set; } = true;
     public int BeforeContext { get; set; } = 0;
     public int AfterContext { get; set; } = 0;
@@ -105,8 +105,8 @@ internal sealed class MainForm : Form
     private readonly Button searchButton = new();
     private readonly NumericUpDown beforeNumeric = new();
     private readonly NumericUpDown afterNumeric = new();
-    private readonly CheckBox showCommandCheckBox = new();
-    private readonly CheckBox showSearchOptionsCheckBox = new();
+    private readonly ToolStripMenuItem showCommandMenuItem = new("Show &Command") { CheckOnClick = true };
+    private readonly ToolStripMenuItem showSearchOptionsMenuItem = new("Show Search &Options") { CheckOnClick = true };
     private readonly Panel searchOptionsPanel = new();
     private readonly CheckBox useRipgrepAllCheckBox = new();
     private readonly CheckBox sortCheckBox = new();
@@ -181,6 +181,21 @@ internal sealed class MainForm : Form
         exportMenuItem.Click += (_, _) => ExportResults();
         fileMenu.DropDownItems.Add(exportMenuItem);
         menuStrip.Items.Add(fileMenu);
+        var viewMenu = new ToolStripMenuItem("&View");
+        showSearchOptionsMenuItem.Checked = settings.ShowSearchOptions;
+        showCommandMenuItem.Checked = settings.ShowCommand;
+        showSearchOptionsMenuItem.CheckedChanged += (_, _) =>
+        {
+            UpdateSearchVisibility();
+            SaveCurrentSettings();
+        };
+        showCommandMenuItem.CheckedChanged += (_, _) =>
+        {
+            UpdateSearchVisibility();
+            SaveCurrentSettings();
+        };
+        viewMenu.DropDownItems.AddRange([showSearchOptionsMenuItem, showCommandMenuItem]);
+        menuStrip.Items.Add(viewMenu);
         var helpMenu = new ToolStripMenuItem("&Help");
         var checkDependenciesMenuItem = new ToolStripMenuItem("Check &Dependencies");
         checkDependenciesMenuItem.Click += (_, _) =>
@@ -238,17 +253,7 @@ internal sealed class MainForm : Form
                 await RunSearchAsync();
         };
 
-        showSearchOptionsCheckBox.Text = "Show search options";
-        showSearchOptionsCheckBox.Location = new Point(15, 100);
-        showSearchOptionsCheckBox.AutoSize = true;
-        showSearchOptionsCheckBox.Checked = settings.ShowSearchOptions;
-        showSearchOptionsCheckBox.CheckedChanged += (_, _) =>
-        {
-            UpdateSearchVisibility();
-            SaveCurrentSettings();
-        };
-
-        searchOptionsPanel.Location = new Point(0, 136);
+        searchOptionsPanel.Location = new Point(0, 100);
         searchOptionsPanel.Size = new Size(900, SearchOptionsHeight);
         searchOptionsPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         searchOptionsPanel.AccessibleName = "Search options";
@@ -278,16 +283,6 @@ internal sealed class MainForm : Form
         afterNumeric.Minimum = 0;
         afterNumeric.Maximum = 100;
         afterNumeric.Value = Math.Clamp(settings.AfterContext, (int)afterNumeric.Minimum, (int)afterNumeric.Maximum);
-
-        showCommandCheckBox.Text = "Show command";
-        showCommandCheckBox.Location = new Point(180, 100);
-        showCommandCheckBox.AutoSize = true;
-        showCommandCheckBox.Checked = settings.ShowCommand;
-        showCommandCheckBox.CheckedChanged += (_, _) =>
-        {
-            UpdateSearchVisibility();
-            SaveCurrentSettings();
-        };
 
         useRipgrepAllCheckBox.Text = "Search Office/PDF files with rga";
         useRipgrepAllCheckBox.Location = new Point(310, 4);
@@ -391,7 +386,7 @@ internal sealed class MainForm : Form
         Controls.AddRange([
             folderLabel, folderComboBox, browseButton,
             searchLabel, searchComboBox, searchButton,
-            showSearchOptionsCheckBox, showCommandCheckBox, searchOptionsPanel,
+            searchOptionsPanel,
             commandLabel, commandTextBox,
             outputLabel, outputTextBox, statusLabel
         ]);
@@ -856,17 +851,17 @@ internal sealed class MainForm : Form
         SuspendLayout();
         try
         {
-            searchOptionsPanel.Visible = showSearchOptionsCheckBox.Checked;
-            commandLabel.Visible = showCommandCheckBox.Checked;
-            commandTextBox.Visible = showCommandCheckBox.Checked;
+            searchOptionsPanel.Visible = showSearchOptionsMenuItem.Checked;
+            commandLabel.Visible = showCommandMenuItem.Checked;
+            commandTextBox.Visible = showCommandMenuItem.Checked;
 
             int nextTop = searchOptionsPanel.Top;
-            if (showSearchOptionsCheckBox.Checked)
+            if (showSearchOptionsMenuItem.Checked)
                 nextTop += searchOptionsPanel.Height;
 
             commandLabel.Location = new Point(15, nextTop);
             commandTextBox.Location = new Point(15, nextTop + 22);
-            if (showCommandCheckBox.Checked)
+            if (showCommandMenuItem.Checked)
                 nextTop += 85;
 
             outputLabel.Location = new Point(15, nextTop);
@@ -916,8 +911,8 @@ internal sealed class MainForm : Form
 
     private void SaveCurrentSettings()
     {
-        settings.ShowCommand = showCommandCheckBox.Checked;
-        settings.ShowSearchOptions = showSearchOptionsCheckBox.Checked;
+        settings.ShowCommand = showCommandMenuItem.Checked;
+        settings.ShowSearchOptions = showSearchOptionsMenuItem.Checked;
         settings.BeforeContext = (int)beforeNumeric.Value;
         settings.AfterContext = (int)afterNumeric.Value;
         settings.UseRipgrepAll = useRipgrepAllCheckBox.Checked;

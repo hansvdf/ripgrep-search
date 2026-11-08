@@ -488,12 +488,127 @@ internal static class Tests
         Application.DoEvents();
     }
 
+    private static void ViewMenuTests(string fixtures)
+    {
+        string root = Path.Combine(fixtures, "view-menu");
+        foreach (var scenario in new[]
+        {
+            (Name: "new-user", Json: (string?)null, Options: true, Command: false),
+            (Name: "missing-fields", Json: (string?)"{}", Options: true, Command: false),
+            (Name: "legacy", Json: (string?)"{\"ShowSearchOptions\":false,\"ShowCommand\":true}", Options: false, Command: true)
+        })
+        {
+            string directory = Path.Combine(root, scenario.Name);
+            if (scenario.Json is not null)
+            {
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory, "settings.json"), scenario.Json);
+            }
+            using var initial = new MainForm(fixtures, directory);
+            Check(Field<ToolStripMenuItem>(initial, "showSearchOptionsMenuItem").Checked == scenario.Options &&
+                Field<ToolStripMenuItem>(initial, "showCommandMenuItem").Checked == scenario.Command,
+                "View menu defaults and existing preferences: " + scenario.Name);
+            if (scenario.Json is not null)
+                Check(File.ReadAllText(Path.Combine(directory, "settings.json")) == scenario.Json,
+                    "initializing View menu does not overwrite saved preferences: " + scenario.Name);
+        }
+
+        string settingsDirectory = Path.Combine(root, "matrix");
+        Directory.CreateDirectory(settingsDirectory);
+        string settingsPath = Path.Combine(settingsDirectory, "settings.json");
+        File.WriteAllText(settingsPath, JsonSerializer.Serialize(new AppSettings
+        {
+            BeforeContext = 2, AfterContext = 3, SortEnabled = true, SortBy = "modified", SortDescending = true
+        }));
+        using var form = new MainForm(fixtures, settingsDirectory);
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new Point(-32000, -32000);
+        form.ShowInTaskbar = false;
+        form.Show();
+        Application.DoEvents();
+        var optionsItem = Field<ToolStripMenuItem>(form, "showSearchOptionsMenuItem");
+        var commandItem = Field<ToolStripMenuItem>(form, "showCommandMenuItem");
+        var options = Field<Panel>(form, "searchOptionsPanel");
+        var commandLabel = Field<Label>(form, "commandLabel");
+        var command = Field<TextBox>(form, "commandTextBox");
+        var outputLabel = Field<Label>(form, "outputLabel");
+        var output = Field<RichTextBox>(form, "outputTextBox");
+        var status = Field<Label>(form, "statusLabel");
+        var search = Field<ComboBox>(form, "searchComboBox");
+        search.Text = "needle";
+        Check(form.MainMenuStrip!.Items.Cast<ToolStripMenuItem>().Select(item => item.Text!.Replace("&", ""))
+            .SequenceEqual(new[] { "File", "View", "Help" }), "View menu appears between File and Help");
+        var view = (ToolStripMenuItem)form.MainMenuStrip.Items[1];
+        Check(view.DropDownItems.Cast<ToolStripMenuItem>().Select(item => item.Text!.Replace("&", ""))
+            .SequenceEqual(new[] { "Show Search Options", "Show Command" }) && optionsItem.CheckOnClick && commandItem.CheckOnClick,
+            "View contains the two checkable visibility commands");
+        Check(!form.Controls.OfType<CheckBox>().Any(box => box.Text.Equals("Show search options", StringComparison.OrdinalIgnoreCase) ||
+            box.Text.Equals("Show command", StringComparison.OrdinalIgnoreCase)), "visibility checkboxes are removed");
+        Check(options.Visible && !command.Visible && !commandLabel.Visible, "new-user default shows options and hides the command");
+        string originalCommand = command.Text;
+        string[] Arguments() => ((List<string>)typeof(MainForm).GetMethod("BuildCurrentArguments", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(form, null)!).ToArray();
+        string[] originalArguments = Arguments();
+        Size normalSize = form.ClientSize;
+        var tops = new Dictionary<(bool Options, bool Command), int>();
+        var heights = new Dictionary<(bool Options, bool Command), int>();
+        foreach (var combination in new[] { (Options: true, Command: false), (Options: false, Command: false),
+            (Options: false, Command: true), (Options: true, Command: true) })
+        {
+            if (optionsItem.Checked != combination.Options) optionsItem.PerformClick();
+            if (commandItem.Checked != combination.Command) commandItem.PerformClick();
+            Application.DoEvents();
+            Check(optionsItem.Checked == combination.Options && commandItem.Checked == combination.Command &&
+                options.Visible == combination.Options && command.Visible == combination.Command && commandLabel.Visible == combination.Command,
+                "independent View menu toggles and section visibility: " + combination);
+            Check(command.Text == originalCommand && Arguments().SequenceEqual(originalArguments),
+                "visibility changes preserve generated search command and arguments: " + combination);
+            var saved = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(settingsPath))!;
+            Check(saved.ShowSearchOptions == combination.Options && saved.ShowCommand == combination.Command &&
+                saved.BeforeContext == 2 && saved.AfterContext == 3 && saved.SortEnabled && saved.SortBy == "modified" && saved.SortDescending,
+                "visibility preferences save immediately without changing search options: " + combination);
+            using (var restored = new MainForm(fixtures, settingsDirectory))
+                Check(Field<ToolStripMenuItem>(restored, "showSearchOptionsMenuItem").Checked == combination.Options &&
+                    Field<ToolStripMenuItem>(restored, "showCommandMenuItem").Checked == combination.Command,
+                    "visibility preferences survive reopening: " + combination);
+
+            foreach (string viewport in new[] { "normal", "minimum", "large" })
+            {
+                if (viewport == "minimum") form.Size = form.MinimumSize;
+                else form.ClientSize = viewport == "normal" ? normalSize : new Size(normalSize.Width + 200, normalSize.Height + 180);
+                Application.DoEvents();
+                Check(output.Top >= outputLabel.Bottom && output.Bottom <= status.Top && output.Right <= form.ClientSize.Width &&
+                    output.Width > 0 && output.Height > 0 && status.Bottom <= form.ClientSize.Height,
+                    "results fit the resized window without overlaps: " + combination + "/" + viewport);
+                Check((!combination.Options || options.Bottom <= (combination.Command ? commandLabel.Top : outputLabel.Top)) &&
+                    (!combination.Command || commandLabel.Bottom <= command.Top && command.Bottom <= outputLabel.Top),
+                    "visible sections remain ordered without overlaps: " + combination + "/" + viewport);
+                if (!combination.Options && !combination.Command)
+                    Check(outputLabel.Top <= search.Bottom + 24, "hidden sections and removed checkbox row leave no unused space: " + viewport);
+                if (viewport == "normal")
+                {
+                    tops[combination] = output.Top;
+                    heights[combination] = output.Height;
+                }
+            }
+        }
+        Check(tops[(true, false)] - tops[(false, false)] == options.Height &&
+            tops[(true, true)] - tops[(false, true)] == options.Height, "hiding options recovers the full options section height");
+        int commandHeight = tops[(false, true)] - tops[(false, false)];
+        Check(commandHeight >= command.Height + commandLabel.Height &&
+            tops[(true, true)] - tops[(true, false)] == commandHeight, "hiding the command recovers its full height independently");
+        Check(tops.All(item => heights[item.Key] + item.Value == heights[(false, false)] + tops[(false, false)]),
+            "results expand into all space reclaimed by hidden sections");
+        form.Close();
+    }
+
     private static void UiTests()
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         string fixtures = Path.Combine(AppContext.BaseDirectory, "ui-fixtures", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(fixtures);
+        ViewMenuTests(fixtures);
         string source = Path.Combine(fixtures, "input");
         Directory.CreateDirectory(source);
         foreach (string name in new[] { "a café.txt", "b 😀.txt" })
@@ -510,7 +625,7 @@ internal static class Tests
         _ = output.Handle;
         Check(File.ReadAllText(settingsPath) == settings, "startup does not overwrite saved preferences");
         Check(Field<NumericUpDown>(form, "beforeNumeric").Value == 1 && Field<NumericUpDown>(form, "afterNumeric").Value == 2, "saved context restored");
-        Check(!Field<CheckBox>(form, "showSearchOptionsCheckBox").Checked && !Field<CheckBox>(form, "showCommandCheckBox").Checked, "saved visibility restored");
+        Check(!Field<ToolStripMenuItem>(form, "showSearchOptionsMenuItem").Checked && !Field<ToolStripMenuItem>(form, "showCommandMenuItem").Checked, "saved visibility restored");
         var pattern = Field<ComboBox>(form, "searchComboBox");
         pattern.Text = "needle";
         Pump(StartSearch(form));
