@@ -182,6 +182,14 @@ internal sealed class MainForm : Form
         fileMenu.DropDownItems.Add(exportMenuItem);
         menuStrip.Items.Add(fileMenu);
         var helpMenu = new ToolStripMenuItem("&Help");
+        var checkDependenciesMenuItem = new ToolStripMenuItem("Check &Dependencies");
+        checkDependenciesMenuItem.Click += (_, _) =>
+        {
+            using var dialog = new DependencyDialog { Icon = Icon };
+            dialog.ShowDialog(this);
+        };
+        helpMenu.DropDownItems.Add(checkDependenciesMenuItem);
+        helpMenu.DropDownItems.Add(new ToolStripSeparator());
         var aboutMenuItem = new ToolStripMenuItem("&About");
         aboutMenuItem.Click += (_, _) => ShowAboutDialog();
         helpMenu.DropDownItems.Add(aboutMenuItem);
@@ -563,9 +571,7 @@ internal sealed class MainForm : Form
         }
 
         bool useRipgrepAll = useRipgrepAllCheckBox.Checked;
-        string? searchExecutablePath = useRipgrepAll
-            ? FindExecutable("rga.exe") ?? FindExecutable("rga")
-            : FindExecutable("rg.exe") ?? FindExecutable("rg");
+        string? searchExecutablePath = ExecutableResolver.ResolveSearchTool(useRipgrepAll);
 
         if (searchExecutablePath is null)
         {
@@ -954,32 +960,6 @@ internal sealed class MainForm : Form
         {
             // Settings persistence should never prevent the search tool from working.
         }
-    }
-
-    private static string? FindExecutable(string executable)
-    {
-        if (Path.IsPathRooted(executable) && File.Exists(executable))
-            return executable;
-
-        string? path = Environment.GetEnvironmentVariable("PATH");
-        if (string.IsNullOrWhiteSpace(path))
-            return null;
-
-        foreach (string directory in path.Split(Path.PathSeparator))
-        {
-            try
-            {
-                string candidate = Path.Combine(directory.Trim(), executable);
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-            catch
-            {
-                // Ignore malformed PATH entries.
-            }
-        }
-
-        return null;
     }
 
     private void ShowError(string message)
