@@ -191,9 +191,11 @@ The View menu saves its choices immediately using the existing `ShowSearchOption
 
 These steps are for developers. If you downloaded a published executable, you do **not** need the .NET SDK or Visual Studio.
 
-**Requirements:** .NET 8 SDK (or Visual Studio 2022 with the appropriate .NET desktop development tooling).
+**Requirements:** .NET 10 SDK to build this migration checkout, using an IDE that supports that SDK or the command line. The existing Windows Forms application still targets .NET 8; its shared Core library targets both .NET 8 and .NET 10. Published application runtime requirements are unchanged.
 
-Open `RipgrepSearch.csproj` in Visual Studio 2022, or run the included `publish-single-exe.bat` to create a self-contained Windows x64 executable.
+The initial extraction moves only search result models, JSON parsing, and process execution into `src/RipgrepSearch.Core`. The Windows Forms interface, settings, dependency resolution, exports, and publish scripts remain in the existing application. See the [v0.10.0 migration baseline](docs/v0.10.0-baseline.md) for preserved behavior, recorded validation, and the temporary .NET 8-only validation procedure for machines without the .NET 10 SDK.
+
+Open `RipgrepSearch.csproj` in an IDE supporting the required SDK, or run the included `publish-single-exe.bat` to create a self-contained Windows x64 executable.
 
 For development and testing, open a terminal in the project directory and run:
 
@@ -234,6 +236,15 @@ To run only the dependency-checker scenarios:
 ```powershell
 dotnet run --project tests/RipgrepSearch.Tests/RipgrepSearch.Tests.csproj -c Release -- --dependencies-only
 ```
+
+The shared Core also has a package-free portable regression runner. It references only Core, requires no Windows Forms or installed search tools, and uses its own child processes to exercise output streaming and failures:
+
+```powershell
+dotnet run --project tests/RipgrepSearch.Core.Tests/RipgrepSearch.Core.Tests.csproj -c Release -f net8.0
+dotnet run --project tests/RipgrepSearch.Core.Tests/RipgrepSearch.Core.Tests.csproj -c Release -f net10.0
+```
+
+These portable checks supplement the existing real rg/rga integration and Windows UI tests; they do not establish macOS/Linux compatibility by themselves.
 
 ## License
 

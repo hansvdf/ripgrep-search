@@ -11,7 +11,9 @@
     <ApplicationIcon>RipgrepSearch.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="src\**\*.cs" />
     <Compile Remove="tests\**\*.cs" />
+    <ProjectReference Include="src\RipgrepSearch.Core\RipgrepSearch.Core.csproj" />
     <InternalsVisibleTo Include="RipgrepSearch.Tests" />
   </ItemGroup>
 </Project>
