@@ -5,17 +5,21 @@ using System.Threading.Channels;
 
 namespace RipgrepSearch;
 
-internal sealed record SearchLimits(
+/// <summary>Search safety budgets; MaxLines includes context and MaxCharacters includes path/formatting allowance.</summary>
+public sealed record SearchLimits(
     int MaxLines = 10_000,
     int MaxCharacters = 2_000_000,
     int MaxLineCharacters = 16_384,
     int MaxJsonMessageCharacters = 4_194_304);
 
-internal enum SearchCompletion { Completed, Cancelled, Limited, Failed }
+/// <summary>Whether a search completed or retained only partial output.</summary>
+public enum SearchCompletion { Completed, Cancelled, Limited, Failed }
 
-internal sealed record SearchOutcome(SearchCompletion Completion, int? ExitCode, string Diagnostics, string? Reason);
+/// <summary>Completion status and bounded tool diagnostics; results arrive separately through the channel.</summary>
+public sealed record SearchOutcome(SearchCompletion Completion, int? ExitCode, string Diagnostics, string? Reason);
 
-internal static class SearchRunner
+/// <summary>Shell-free rg/rga argument construction and bounded, cancellable JSON search streaming.</summary>
+public static class SearchRunner
 {
     public static List<string> BuildArguments(string pattern, string folder, int before, int after,
         string? sortBy, bool descending)

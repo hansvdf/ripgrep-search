@@ -1,6 +1,7 @@
 namespace RipgrepSearch;
 
-internal sealed class SearchResultFormatter
+/// <summary>Formats ordered results using the shared palette. Create one instance per search; not thread-safe.</summary>
+public sealed class SearchResultFormatter
 {
     private string? previousFile;
     private long previousLine;

@@ -13,7 +13,7 @@ This phase builds on commit `231cb81` (the initial Core extraction) on `feature/
 | ExecutableResolver and asynchronous DependencyChecker | WindowsDependencies wrapper supplies the existing WindowsPathEnvironment.RefreshProcessPath callback |
 | DependencyDiagnostics builds/redacts plain text from supplied metadata and checked results | Application/Windows version lookup, profile selection, cached results, clipboard, feedback and icons |
 
-Internal types stay in the `RipgrepSearch` namespace, with existing friend-assembly access. No UI toolkit or registry types enter Core. The existing path-provider delegate is sufficient for dependency checks; no service container or new interface hierarchy is needed.
+At the end of this extraction, internal types stayed in the `RipgrepSearch` namespace, with existing friend-assembly access. Phase 4 subsequently exposes the small search/formatting API described in [the Avalonia prototype notes](phase4-avalonia-prototype.md#core-api). Other types retain their existing visibility. No UI toolkit or registry types enter Core. The existing path-provider delegate is sufficient for dependency checks; no service container or new interface hierarchy is needed.
 
 ## Compatibility decisions
 
@@ -63,3 +63,5 @@ The sandbox build exited without a compiler diagnostic, as during the earlier SD
 macOS/Linux execution and native integration remain untested. Settings directory selection, folder-history case rules, runtime metadata, clipboard, OS file/URL launch, RTF/RichTextBox behavior, registry PATH refresh, Explorer scripts and packaging remain in the Windows host. Timestamp sorting and process-tree cleanup still require validation on each target OS. A .NET 10 SDK is needed for normal multi-target builds; published WinForms runtime requirements remain .NET 8.
 
 The fixed palette and report spans are ready for another renderer. The next proposed phase is an Avalonia shell and bounded result-view prototype, including cross-line selection, Unicode highlighting and large-result performance tests. Implement that only after review of this phase.
+
+The subsequent implementation and macOS .NET 10 validation are recorded in [Phase 4](phase4-avalonia-prototype.md). The validation results above remain the historical Windows extraction results.

@@ -246,6 +246,33 @@ dotnet run --project tests/RipgrepSearch.Core.Tests/RipgrepSearch.Core.Tests.csp
 
 These portable checks supplement the existing real rg/rga integration and Windows UI tests; they do not establish macOS/Linux compatibility by themselves.
 
+## Avalonia desktop preview (Phase 4)
+
+The working Windows release remains **v0.10.0**. A separate, experimental .NET 10 desktop host now lives in `src/RipgrepSearch.Desktop`. It uses Avalonia **12.1.5** and AvaloniaEdit **12.0.0**, sharing the existing Core search pipeline. It is not yet a replacement for the Windows Forms application.
+
+On macOS Apple Silicon, use the .NET 10 SDK and install `rg` separately. Verify `rg --version` in the terminal used to launch the preview, then run from the repository root:
+
+```sh
+dotnet run --project src/RipgrepSearch.Desktop/RipgrepSearch.Desktop.csproj -c Release
+# Optional absolute starting folder:
+dotnet run --project src/RipgrepSearch.Desktop/RipgrepSearch.Desktop.csproj -c Release -- "/path/with spaces/café"
+```
+
+The preview starts in your home folder unless an absolute folder argument is supplied. Browse uses the platform folder picker. Enter a pattern and press Enter or Search; Cancel or Escape stops the search. Results stream into a read-only, black-background editor with Core's colors and highlighting. Select and copy across lines using the platform keyboard shortcuts. Double-click a filename, or put the caret in its heading and press F4, to request opening it in the default application.
+
+The preview uses its inherited process `PATH`; it does not read shell profiles or refresh Windows registry settings. If `rg` is missing, launch from a terminal with the correct `PATH`. It does not use `rga`, persist preferences/history, or provide menus, sorting controls, context controls, exports, or dependency-checker UI yet.
+
+Build and validate on macOS:
+
+```sh
+dotnet build src/RipgrepSearch.Core/RipgrepSearch.Core.csproj -c Release
+dotnet run --project tests/RipgrepSearch.Core.Tests/RipgrepSearch.Core.Tests.csproj -c Release -f net10.0
+dotnet build src/RipgrepSearch.Desktop/RipgrepSearch.Desktop.csproj -c Release
+dotnet run --project tests/RipgrepSearch.Desktop.Tests/RipgrepSearch.Desktop.Tests.csproj -c Release
+```
+
+The Desktop runner requires installed `rg`. It exercises the actual view using headless Skia, real searches, and Unix process fixtures, and prints performance observations. It currently targets macOS/Linux validation; its process-launcher fixtures are Unix-specific. Headless checks do not establish native GUI behavior. See [Phase 4 implementation and validation](docs/phase4-avalonia-prototype.md) for measured results, the public Core API, and the native acceptance checklist. The existing Windows regression suite must still run on Windows.
+
 ## License
 
 Ripgrep Search is licensed under the MIT License.

@@ -1,7 +1,7 @@
 namespace RipgrepSearch;
 
-// Fixed v0.10.0 palette and decorations, independent of a UI toolkit.
-internal enum ResultColor
+/// <summary>The fixed v0.10.0 palette; enum values contain 24-bit RGB data.</summary>
+public enum ResultColor
 {
     White = 0xFFFFFF,
     DeepSkyBlue = 0x00BFFF,
@@ -11,8 +11,9 @@ internal enum ResultColor
     Gray = 0x808080
 }
 
+/// <summary>Portable text decorations for result spans.</summary>
 [Flags]
-internal enum ResultTextStyle { Regular = 0, Bold = 1, Underline = 4 }
+public enum ResultTextStyle { Regular = 0, Bold = 1, Underline = 4 }
 
 internal static class ResultPalette
 {
@@ -23,7 +24,8 @@ internal static class ResultPalette
     public static string ToHtml(ResultColor color) => color.ToString();
 }
 
-internal sealed record ResultSpan(string Text, ResultColor Color, ResultTextStyle Style,
+/// <summary>Formatted text with optional file-heading navigation metadata; Text uses UTF-16 and preserves CRLF.</summary>
+public sealed record ResultSpan(string Text, ResultColor Color, ResultTextStyle Style,
     string? FilePath = null, bool IsFileHeading = false);
 
 internal sealed record SearchReport(string Folder, string Pattern, string Command, DateTimeOffset StartedAt)

@@ -1,0 +1,51 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:RipgrepSearch.Desktop"
+        xmlns:editor="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        x:Class="RipgrepSearch.Desktop.MainWindow" x:DataType="local:SearchViewModel"
+        Title="Ripgrep Search — Avalonia Preview" Width="1080" Height="740"
+        MinWidth="680" MinHeight="440" Background="#181B20">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="20" RowSpacing="14">
+    <StackPanel Spacing="14">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel>
+          <TextBlock Text="Ripgrep Search" FontSize="24" FontWeight="SemiBold" />
+          <TextBlock Text="Search files with ripgrep" Foreground="#A8B0BE" Margin="0,3,0,0" />
+        </StackPanel>
+        <Border Grid.Column="1" Background="#293342" CornerRadius="5" Padding="10,5" VerticalAlignment="Center">
+          <TextBlock Text="AVALONIA PREVIEW" FontSize="11" Foreground="#8DD9FA" />
+        </Border>
+      </Grid>
+      <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+        <Label Target="{Binding #FolderInput}" Content="_Folder" VerticalAlignment="Center" />
+        <TextBox Grid.Column="1" x:Name="FolderInput" Text="{Binding Folder, Mode=TwoWay}"
+                 IsEnabled="{Binding CanSearch}" PlaceholderText="Absolute folder path" AutomationProperties.Name="Search folder" />
+        <Button Grid.Column="2" Content="_Browse…" Click="BrowseClicked" IsEnabled="{Binding CanSearch}" HorizontalAlignment="Stretch" />
+        <Label Grid.Row="1" Target="{Binding #PatternInput}" Content="_Pattern" VerticalAlignment="Center" />
+        <TextBox Grid.Row="1" Grid.Column="1" x:Name="PatternInput" Text="{Binding Pattern, Mode=TwoWay}"
+                 IsEnabled="{Binding CanSearch}" PlaceholderText="Text or regular expression" AutomationProperties.Name="Search pattern" />
+        <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Spacing="8">
+          <Button Content="_Search" Command="{Binding SearchCommand}" IsDefault="True" Padding="18,8" />
+          <Button Content="_Cancel" Command="{Binding CancelCommand}" />
+        </StackPanel>
+      </Grid>
+    </StackPanel>
+    <Border Grid.Row="1" BorderBrush="#343B46" BorderThickness="1" CornerRadius="4" ClipToBounds="True" Background="Black">
+      <editor:TextEditor x:Name="ResultsEditor" Document="{Binding Results.Document}"
+                         IsReadOnly="True" WordWrap="False" ShowLineNumbers="False"
+                         Background="Black" Foreground="White" FontSize="14"
+                         FontFamily="Menlo,Consolas,DejaVu Sans Mono,monospace"
+                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                         Padding="12" AutomationProperties.Name="Search results" />
+    </Border>
+    <StackPanel Grid.Row="2" Spacing="6">
+      <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsSearching}" Height="3" />
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="#D1D7E0" />
+        <TextBlock Grid.Column="1" Text="{Binding MatchingLines, StringFormat='{}{0:N0} matching lines'}" Foreground="#8DD9FA" />
+      </Grid>
+      <TextBlock Text="Select and copy across lines · Double-click a filename to open · Esc cancels · F4 opens the filename at the caret"
+                 FontSize="11" Foreground="#929CAB" TextWrapping="Wrap" />
+    </StackPanel>
+  </Grid>
+</Window>

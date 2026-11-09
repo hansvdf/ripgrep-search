@@ -1,6 +1,7 @@
 namespace RipgrepSearch;
 
-internal static class ExecutableResolver
+/// <summary>Resolves rg/rga from process PATH using the host OS's executable naming rules.</summary>
+public static class ExecutableResolver
 {
     public static string? ResolveSearchTool(bool useRipgrepAll) =>
         ResolveSearchTool(useRipgrepAll, Environment.GetEnvironmentVariable("PATH"));
