@@ -2,8 +2,8 @@ using System.Text.Json;
 
 namespace RipgrepSearch;
 
-// The host selects the path. Loading never creates, migrates, or rewrites a file.
-internal static class AppSettingsStore
+/// <summary>Best-effort JSON storage at a host-selected path. Loading never creates, migrates, or rewrites a file.</summary>
+public static class AppSettingsStore
 {
     public static AppSettings Load(string filePath)
     {

@@ -18,12 +18,16 @@
       </Grid>
       <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="12">
         <Label Target="{Binding #FolderInput}" Content="_Folder" VerticalAlignment="Center" />
-        <TextBox Grid.Column="1" x:Name="FolderInput" Text="{Binding Folder, Mode=TwoWay}"
-                 IsEnabled="{Binding CanSearch}" PlaceholderText="Absolute folder path" AutomationProperties.Name="Search folder" />
+        <ComboBox Grid.Column="1" x:Name="FolderInput" Text="{Binding Folder, Mode=TwoWay}"
+                  ItemsSource="{Binding FolderHistory}" IsEditable="True" IsTextSearchEnabled="False"
+                  HorizontalAlignment="Stretch" IsEnabled="{Binding CanSearch}"
+                  PlaceholderText="Folder path" AutomationProperties.Name="Search folder" />
         <Button Grid.Column="2" Content="_Browse…" Click="BrowseClicked" IsEnabled="{Binding CanSearch}" HorizontalAlignment="Stretch" />
         <Label Grid.Row="1" Target="{Binding #PatternInput}" Content="_Pattern" VerticalAlignment="Center" />
-        <TextBox Grid.Row="1" Grid.Column="1" x:Name="PatternInput" Text="{Binding Pattern, Mode=TwoWay}"
-                 IsEnabled="{Binding CanSearch}" PlaceholderText="Text or regular expression" AutomationProperties.Name="Search pattern" />
+        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="PatternInput" Text="{Binding Pattern, Mode=TwoWay}"
+                  ItemsSource="{Binding PatternHistory}" IsEditable="True" IsTextSearchEnabled="False"
+                  HorizontalAlignment="Stretch" IsEnabled="{Binding CanSearch}"
+                  PlaceholderText="Text or regular expression" AutomationProperties.Name="Search pattern" />
         <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Spacing="8">
           <Button Content="_Search" Command="{Binding SearchCommand}" IsDefault="True" Padding="18,8" />
           <Button Content="_Cancel" Command="{Binding CancelCommand}" />

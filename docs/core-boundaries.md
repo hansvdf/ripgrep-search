@@ -13,7 +13,7 @@ This phase builds on commit `231cb81` (the initial Core extraction) on `feature/
 | ExecutableResolver and asynchronous DependencyChecker | WindowsDependencies wrapper supplies the existing WindowsPathEnvironment.RefreshProcessPath callback |
 | DependencyDiagnostics builds/redacts plain text from supplied metadata and checked results | Application/Windows version lookup, profile selection, cached results, clipboard, feedback and icons |
 
-At the end of this extraction, internal types stayed in the `RipgrepSearch` namespace, with existing friend-assembly access. Phase 4 subsequently exposes the small search/formatting API described in [the Avalonia prototype notes](phase4-avalonia-prototype.md#core-api). Other types retain their existing visibility. No UI toolkit or registry types enter Core. The existing path-provider delegate is sufficient for dependency checks; no service container or new interface hierarchy is needed.
+At the end of this extraction, internal types stayed in the `RipgrepSearch` namespace, with existing friend-assembly access. Phase 4 subsequently exposes the small search/formatting API described in [the Avalonia prototype notes](phase4-avalonia-prototype.md#core-api). [Phase 5.2](phase5.2-settings-history.md) additionally exposes AppSettings/AppSettingsStore and a pure WithRecentSearch snapshot method for portable MRU handling; the existing store methods and WinForms call sites are unchanged. Other types retain their existing visibility. No UI toolkit or registry types enter Core. The existing path-provider delegate is sufficient for dependency checks; no service container or new interface hierarchy is needed.
 
 ## Compatibility decisions
 

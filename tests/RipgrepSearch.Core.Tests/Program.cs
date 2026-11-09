@@ -23,6 +23,7 @@ internal static partial class Tests
             ArgumentTests();
             PresentationTests();
             SettingsTests();
+            HistoryTests();
             DiagnosticsTests();
             await DependencyProbeTests();
             await RunnerTests();

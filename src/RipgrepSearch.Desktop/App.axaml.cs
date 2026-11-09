@@ -16,10 +16,10 @@ public sealed partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow(new SearchViewModel(desktop.Args?.FirstOrDefault()));
-            // macOS Quit and OS shutdown must use the same cancel-and-await path as window close.
+            // Quit/shutdown must await both search cleanup and settings writes.
             desktop.ShutdownRequested += (_, e) =>
             {
-                if (desktop.MainWindow is MainWindow window && window.ViewModel.IsSearching)
+                if (desktop.MainWindow is MainWindow window && !window.IsCloseReady)
                 {
                     e.Cancel = true;
                     window.Close();

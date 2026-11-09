@@ -11,6 +11,7 @@ public sealed partial class MainWindow : Window
     private bool closePending;
     private bool mayClose;
     public SearchViewModel ViewModel { get; }
+    internal bool IsCloseReady => mayClose;
 
     public MainWindow() : this(new SearchViewModel()) { }
 
@@ -25,8 +26,26 @@ public sealed partial class MainWindow : Window
         ResultsEditor.Options.EnableEmailHyperlinks = false;
         ResultsEditor.AddHandler(PointerPressedEvent, ResultsPointerPressed, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, WindowKeyDown, RoutingStrategies.Tunnel);
+        FolderInput.AddHandler(KeyDownEvent, HistoryKeyDown, RoutingStrategies.Tunnel);
+        PatternInput.AddHandler(KeyDownEvent, HistoryKeyDown, RoutingStrategies.Tunnel);
         Closing += WindowClosing;
-        Opened += (_, _) => PatternInput.Focus();
+        Opened += async (_, _) =>
+        {
+            await ViewModel.InitializeAsync();
+            if (!closePending) PatternInput.Focus();
+        };
+    }
+
+    private static void HistoryKeyDown(object? sender, KeyEventArgs e)
+    {
+        // An editable ComboBox's inner TextBox can consume Alt+arrow on macOS.
+        // Route the dropdown gesture before text editing handles it.
+        if (sender is ComboBox combo && (e.Key == Key.F4 ||
+            (e.Key is Key.Down or Key.Up && e.KeyModifiers.HasFlag(KeyModifiers.Alt))))
+        {
+            combo.IsDropDownOpen = !combo.IsDropDownOpen;
+            e.Handled = true;
+        }
     }
 
     private async void BrowseClicked(object? sender, RoutedEventArgs e)
@@ -38,10 +57,19 @@ public sealed partial class MainWindow : Window
                 ViewModel.ReportError("A folder picker is unavailable. Enter an absolute folder path.");
                 return;
             }
+            IStorageFolder? start = null;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(ViewModel.Folder))
+                    start = await StorageProvider.TryGetFolderFromPathAsync(new Uri(ViewModel.ResolveFolderInput()));
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException) { }
+            using var startingFolder = start;
             var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
                 Title = "Choose a folder to search",
-                AllowMultiple = false
+                AllowMultiple = false,
+                SuggestedStartLocation = startingFolder
             });
             foreach (var folder in folders)
             {
@@ -69,7 +97,33 @@ public sealed partial class MainWindow : Window
 
     private async void WindowKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && ViewModel.IsSearching)
+        var history = FolderInput.IsDropDownOpen ? FolderInput : PatternInput.IsDropDownOpen ? PatternInput : null;
+        if (history is not null && e.Key == Key.Enter)
+        {
+            // Commit a history choice before the window's default Search button.
+            if (history.SelectedItem is string value) history.Text = value;
+            history.IsDropDownOpen = false;
+            e.Handled = true;
+        }
+        else if (history is not null && e.KeyModifiers == KeyModifiers.None && e.Key is Key.Up or Key.Down)
+        {
+            // Editable dropdowns must navigate choices, not the inner TextBox's
+            // caret, and selection must be committed before Enter reaches Search.
+            if (history.ItemCount > 0)
+            {
+                int next = history.SelectedIndex < 0 ? (e.Key == Key.Down ? 0 : history.ItemCount - 1)
+                    : Math.Clamp(history.SelectedIndex + (e.Key == Key.Down ? 1 : -1), 0, history.ItemCount - 1);
+                history.SelectedIndex = next;
+                if (history.SelectedItem is string value) history.Text = value;
+            }
+            e.Handled = true;
+        }
+        else if (history is not null && e.Key == Key.Escape)
+        {
+            history.IsDropDownOpen = false;
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape && ViewModel.IsSearching)
         {
             ViewModel.Cancel();
             e.Handled = true;
@@ -95,12 +149,12 @@ public sealed partial class MainWindow : Window
 
     private async void WindowClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (mayClose || !ViewModel.IsSearching) return;
+        if (mayClose) return;
         e.Cancel = true;
         if (closePending) return;
         closePending = true;
-        // Keep pumping the UI while Core kills the process tree and drains pipes.
-        await ViewModel.CancelAndWaitAsync();
+        // Keep pumping the UI during process cleanup and the final ordered settings write.
+        await ViewModel.CloseAsync();
         mayClose = true;
         Close();
     }

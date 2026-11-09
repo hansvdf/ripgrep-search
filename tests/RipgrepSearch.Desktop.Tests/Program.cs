@@ -13,7 +13,7 @@ using AvaloniaEdit;
 using RipgrepSearch;
 using RipgrepSearch.Desktop;
 
-internal static class Tests
+internal static partial class Tests
 {
     private static int passed;
     private static readonly string Root = Path.Combine(AppContext.BaseDirectory, "fixtures", "Phase 4 café 😀");
@@ -34,6 +34,7 @@ internal static class Tests
             {
                 try
                 {
+                    await SettingsHistoryTests();
                     await DocumentTests();
                     await SearchTests();
                     await LifetimeTests();
@@ -63,9 +64,10 @@ internal static class Tests
 
     private static async Task DocumentTests()
     {
-        var vm = new SearchViewModel(Root);
+        var vm = CreateViewModel(Root);
         var window = new MainWindow(vm);
         window.Show();
+        await vm.InitializeAsync();
         var editor = window.FindControl<TextEditor>("ResultsEditor")!;
         var formatter = new SearchResultFormatter();
         const string text = "café 😀 needle\0 tail";
@@ -105,15 +107,18 @@ internal static class Tests
         vm.Results.Clear();
         Check(editor.Document.TextLength == 0 && vm.Results.NavigationPathAt(0) is null, "clear removes text and navigation index");
         window.Close();
+        await WaitUntil(() => !window.IsVisible);
     }
 
     private static async Task SearchTests()
     {
         string searchFolder = Path.Combine(Root, "functional");
         Directory.CreateDirectory(searchFolder);
-        var vm = new SearchViewModel(searchFolder) { Pattern = "needle" };
+        var vm = CreateViewModel(searchFolder);
+        vm.Pattern = "needle";
         var window = new MainWindow(vm);
         window.Show();
+        await vm.InitializeAsync();
         vm.Folder = Path.Combine(Root, "missing");
         await vm.SearchAsync();
         Check(vm.CanSearch && vm.Status.Contains("does not exist"), "invalid folder is recoverable");
@@ -121,7 +126,9 @@ internal static class Tests
         vm.Pattern = " ";
         await vm.SearchAsync();
         Check(vm.Status.StartsWith("Enter a search"), "empty pattern validation");
-        var missing = new SearchViewModel(Root, () => null) { Pattern = "needle" };
+        var missing = CreateViewModel(Root, () => null);
+        await missing.InitializeAsync();
+        missing.Pattern = "needle";
         await missing.SearchAsync();
         Check(missing.Status.Contains("was not found on PATH") && missing.CanSearch, "missing executable gives actionable error");
         File.WriteAllText(Path.Combine(searchFolder, "café 😀.txt"), "before\n😀 needle needle\nafter\n");
@@ -145,6 +152,7 @@ internal static class Tests
         Check(vm.Status.StartsWith("Search cancelled") && vm.Status.Contains("incomplete"),
             "cancel during consumption stays partial even if rg has already completed");
         window.Close();
+        await WaitUntil(() => !window.IsVisible);
     }
 
     private static string FakeTool(string mode)
@@ -164,15 +172,17 @@ internal static class Tests
     private static async Task LifetimeTests()
     {
         string tool = FakeTool("quiet");
-        var vm = new SearchViewModel(Root, () => tool) { Pattern = "needle" };
+        var vm = CreateViewModel(Root, () => tool);
+        vm.Pattern = "needle";
         var window = new MainWindow(vm);
         window.Show();
+        await vm.InitializeAsync();
         Task search = vm.SearchAsync();
         await WaitUntil(() => vm.BatchCount > 0);
         int pid = int.Parse(File.ReadAllText(Path.Combine(Root, "quiet.pid")));
         int descendant = int.Parse(File.ReadAllText(Path.Combine(Root, "descendant.pid")));
         Check(vm.IsSearching && !vm.SearchCommand.CanExecute(null) && vm.CancelCommand.CanExecute(null), "busy commands and streaming batch before process exit");
-        Check(!window.FindControl<TextBox>("PatternInput")!.IsEnabled, "inputs disabled while search runs");
+        Check(!window.FindControl<ComboBox>("PatternInput")!.IsEnabled, "inputs disabled while search runs");
         var watch = Stopwatch.StartNew();
         window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
         await search;
@@ -213,9 +223,11 @@ internal static class Tests
         Directory.CreateDirectory(directory);
         for (int file = 0; file < 200; file++)
             File.WriteAllText(Path.Combine(directory, $"file {file:D3} café.txt"), string.Concat(Enumerable.Repeat("😀 needle needle\n", 55)));
-        var vm = new SearchViewModel(directory) { Pattern = "needle" };
+        var vm = CreateViewModel(directory);
+        vm.Pattern = "needle";
         var window = new MainWindow(vm);
         window.Show();
+        await vm.InitializeAsync();
         Render(window);
         long before = GC.GetTotalMemory(true);
         var elapsed = Stopwatch.StartNew();
@@ -286,6 +298,7 @@ internal static class Tests
         await vm.SearchAsync();
         Check(vm.Status.StartsWith("Display limit reached") && vm.Results.Document.Text.Contains("16,384"), "oversized line gives clear limit diagnostic");
         window.Close();
+        await WaitUntil(() => !window.IsVisible);
         Directory.Delete(directory, recursive: true);
     }
 

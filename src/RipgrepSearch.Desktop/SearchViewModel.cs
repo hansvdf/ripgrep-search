@@ -9,36 +9,48 @@ namespace RipgrepSearch.Desktop;
 
 public sealed class SearchViewModel : INotifyPropertyChanged
 {
-    private string folder;
+    private string folder = string.Empty;
     private string pattern = string.Empty;
-    private string status = "Choose a folder and enter a search pattern.";
+    private string status = "Loading preferences…";
     private bool isSearching;
     private bool isCancelling;
     private int matchingLines;
     private CancellationTokenSource? cancellation;
     private Task activeSearch = Task.CompletedTask;
     private readonly Func<string?> resolveExecutable;
+    private readonly DesktopEnvironment environment;
+    private readonly string? initialFolder;
+    private readonly Func<string, AppSettings> loadSettings;
+    private AppSettings settings = new();
+    private Task? initialization;
+    private Task pendingSave = Task.CompletedTask;
+    private bool initialized;
+    private bool closing;
+    private IReadOnlyList<string> folderHistory = [];
+    private IReadOnlyList<string> patternHistory = [];
 
     public SearchViewModel(string? initialFolder = null) : this(initialFolder,
-        () => ExecutableResolver.ResolveSearchTool(false)) { }
+        () => ExecutableResolver.ResolveSearchTool(false), DesktopEnvironment.Current()) { }
 
-    internal SearchViewModel(string? initialFolder, Func<string?> resolveExecutable)
+    internal SearchViewModel(string? initialFolder, Func<string?> resolveExecutable, DesktopEnvironment environment,
+        Func<string, AppSettings>? loadSettings = null)
     {
-        // GUI launches may inherit '/' or an app-bundle directory. Start in the
-        // user's home unless an explicit absolute folder argument is supplied.
-        folder = initialFolder is not null && Path.IsPathFullyQualified(initialFolder)
-            ? initialFolder : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        this.initialFolder = initialFolder;
+        this.environment = environment;
+        this.loadSettings = loadSettings ?? AppSettingsStore.Load;
         this.resolveExecutable = resolveExecutable;
         SearchCommand = new ActionCommand(async () => await SearchAsync(), () => CanSearch);
         CancelCommand = new ActionCommand(Cancel, () => IsSearching && !isCancelling);
     }
 
-    public string Folder { get => folder; set => Set(ref folder, value); }
-    public string Pattern { get => pattern; set => Set(ref pattern, value); }
+    public string Folder { get => folder; set => Set(ref folder, value ?? string.Empty); }
+    public string Pattern { get => pattern; set => Set(ref pattern, value ?? string.Empty); }
+    public IReadOnlyList<string> FolderHistory => folderHistory;
+    public IReadOnlyList<string> PatternHistory => patternHistory;
     public string Status { get => status; private set => Set(ref status, value); }
     public int MatchingLines { get => matchingLines; private set => Set(ref matchingLines, value); }
     public bool IsSearching => isSearching;
-    public bool CanSearch => !isSearching;
+    public bool CanSearch => initialized && !isSearching && !closing;
     public ResultsDocument Results { get; } = new();
     public ICommand SearchCommand { get; }
     public ICommand CancelCommand { get; }
@@ -47,10 +59,81 @@ public sealed class SearchViewModel : INotifyPropertyChanged
     internal double? FirstBatchMilliseconds { get; private set; }
     internal int BatchCount { get; private set; }
     internal double MaxAppendMilliseconds { get; private set; }
+    internal AppSettings Preferences => settings;
+
+    public Task InitializeAsync() => initialization ??= InitializeInternalAsync();
+
+    private async Task InitializeInternalAsync()
+    {
+        var loaded = await Task.Run(() =>
+        {
+            AppSettings preferences = loadSettings(environment.SettingsFile)
+                .WithRecentSearch(null, null, environment.FolderComparer);
+            // Match WinForms' UI normalization without changing the shared store
+            // or activating Phase 5.3 options in the current search pipeline.
+            preferences.BeforeContext = Math.Clamp(preferences.BeforeContext, 0, 100);
+            preferences.AfterContext = Math.Clamp(preferences.AfterContext, 0, 100);
+            if (preferences.SortBy is not ("path" or "modified" or "accessed" or "created")) preferences.SortBy = "path";
+            return (Settings: preferences, Folder: environment.InitialFolder(initialFolder, preferences.FolderHistory));
+        });
+        settings = loaded.Settings;
+        Folder = loaded.Folder;
+        RefreshHistories();
+        // Like WinForms, make an explicit startup folder available in the list
+        // without persisting it or promoting existing MRUs during initialization.
+        if (!string.IsNullOrWhiteSpace(Folder) && !folderHistory.Contains(Folder, environment.FolderComparer))
+        {
+            folderHistory = new[] { Folder }.Concat(folderHistory).Take(10).ToArray();
+            PropertyChanged?.Invoke(this, new(nameof(FolderHistory)));
+            PropertyChanged?.Invoke(this, new(nameof(Folder)));
+        }
+        initialized = true;
+        Status = "Choose a folder and enter a search pattern.";
+        RefreshCommands();
+    }
+
+    private void RefreshHistories()
+    {
+        string currentFolder = Folder, currentPattern = Pattern;
+        folderHistory = settings.FolderHistory.ToArray();
+        patternHistory = settings.SearchHistory.ToArray();
+        PropertyChanged?.Invoke(this, new(nameof(FolderHistory)));
+        PropertyChanged?.Invoke(this, new(nameof(PatternHistory)));
+        // Editable ComboBoxes may reset their Text when ItemsSource changes.
+        Folder = currentFolder;
+        Pattern = currentPattern;
+        PropertyChanged?.Invoke(this, new(nameof(Folder)));
+        PropertyChanged?.Invoke(this, new(nameof(Pattern)));
+    }
+
+    // Called at search startup and close, as in WinForms. Writes are ordered and
+    // use independent Core snapshots, so older async saves cannot win a race.
+    public Task SaveAsync()
+    {
+        if (!initialized) return Task.CompletedTask;
+        settings = settings.WithRecentSearch(environment.FolderInput(Folder), Pattern, environment.FolderComparer);
+        AppSettings snapshot = settings;
+        Task previous = pendingSave;
+        pendingSave = Task.Run(async () =>
+        {
+            await previous.ConfigureAwait(false);
+            AppSettingsStore.Save(environment.SettingsFile, snapshot);
+        });
+        return pendingSave;
+    }
+
+    public async Task CloseAsync()
+    {
+        closing = true;
+        RefreshCommands();
+        await CancelAndWaitAsync();
+        await InitializeAsync();
+        await SaveAsync();
+    }
 
     public Task SearchAsync()
     {
-        if (!IsSearching) activeSearch = SearchInternalAsync();
+        if (CanSearch) activeSearch = SearchInternalAsync();
         return activeSearch;
     }
 
@@ -70,6 +153,7 @@ public sealed class SearchViewModel : INotifyPropertyChanged
     }
 
     public void ReportError(string message) => Status = message;
+    internal string ResolveFolderInput() => environment.ResolveFolder(Folder);
 
     private async Task SearchInternalAsync()
     {
@@ -78,12 +162,12 @@ public sealed class SearchViewModel : INotifyPropertyChanged
         string searchPattern = Pattern;
         try
         {
-            if (string.IsNullOrWhiteSpace(Folder) || !Path.IsPathFullyQualified(Folder))
+            if (string.IsNullOrWhiteSpace(Folder))
             {
-                Status = "Enter an absolute folder path or use Browse.";
+                Status = "Enter a folder path or use Browse.";
                 return;
             }
-            absoluteFolder = Path.GetFullPath(Folder);
+            absoluteFolder = environment.ResolveFolder(Folder);
             if (!Directory.Exists(absoluteFolder))
             {
                 Status = "The selected folder does not exist or cannot be accessed.";
@@ -106,6 +190,9 @@ public sealed class SearchViewModel : INotifyPropertyChanged
             Status = $"Cannot start search: {ex.Message}";
             return;
         }
+
+        _ = SaveAsync();
+        RefreshHistories();
 
         using var source = new CancellationTokenSource();
         cancellation = source;
@@ -206,6 +293,11 @@ public sealed class SearchViewModel : INotifyPropertyChanged
     {
         isSearching = value;
         PropertyChanged?.Invoke(this, new(nameof(IsSearching)));
+        RefreshCommands();
+    }
+
+    private void RefreshCommands()
+    {
         PropertyChanged?.Invoke(this, new(nameof(CanSearch)));
         ((ActionCommand)SearchCommand).Refresh();
         ((ActionCommand)CancelCommand).Refresh();
