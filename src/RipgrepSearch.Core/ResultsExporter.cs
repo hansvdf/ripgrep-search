@@ -1,19 +1,8 @@
-using System.Drawing;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 
 namespace RipgrepSearch;
-
-internal sealed record ResultSpan(string Text, Color Color, FontStyle Style,
-    string? FilePath = null, bool IsFileHeading = false);
-
-internal sealed record SearchReport(string Folder, string Pattern, string Command, DateTimeOffset StartedAt)
-{
-    public List<ResultSpan> Spans { get; } = [];
-    public List<SearchResultLine> Results { get; } = [];
-    public string Status { get; set; } = string.Empty;
-}
 
 internal static class ResultsExporter
 {
@@ -47,10 +36,10 @@ internal static class ResultsExporter
 
         foreach (ResultSpan span in report.Spans)
         {
-            html.Append("<span style=\"color: ").Append(ColorTranslator.ToHtml(span.Color)).Append(';');
-            if (span.Style.HasFlag(FontStyle.Bold))
+            html.Append("<span style=\"color: ").Append(ResultPalette.ToHtml(span.Color)).Append(';');
+            if (span.Style.HasFlag(ResultTextStyle.Bold))
                 html.Append(" font-weight: bold;");
-            if (span.Style.HasFlag(FontStyle.Underline))
+            if (span.Style.HasFlag(ResultTextStyle.Underline))
                 html.Append(" text-decoration: underline;");
             html.Append("\">");
 

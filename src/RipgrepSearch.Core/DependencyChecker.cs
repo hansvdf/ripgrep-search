@@ -22,7 +22,7 @@ internal static class DependencyChecker
     };
 
     public static Task<DependencyCheckResult[]> CheckAllAsync(CancellationToken cancellationToken = default) =>
-        CheckAllWithPathProviderAsync(WindowsPathEnvironment.RefreshProcessPath, TimeSpan.FromSeconds(5), cancellationToken);
+        CheckAllWithPathProviderAsync(() => Environment.GetEnvironmentVariable("PATH"), TimeSpan.FromSeconds(5), cancellationToken);
 
     internal static Task<DependencyCheckResult[]> CheckAllAsync(string? searchPath, TimeSpan timeout,
         CancellationToken cancellationToken = default) =>
@@ -31,7 +31,7 @@ internal static class DependencyChecker
     internal static Task<DependencyCheckResult[]> CheckAllWithPathProviderAsync(Func<string?> getSearchPath,
         TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-        // Registry reads and resolution may be slow. Keep both off the UI thread.
+        // The host supplies environment policy. Keep resolution and probes off the UI thread.
         return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -51,7 +51,7 @@ internal static class DependencyChecker
         {
             return new DependencyCheckResult(dependency, DependencyStatus.NotFound, null, null,
                 $"{dependency.ExecutableName} was not found on the application's PATH. Install {dependency.Name}, " +
-                "add the directory containing its executable to Windows PATH, then click Refresh.");
+                $"add the directory containing its executable to {(OperatingSystem.IsWindows() ? "Windows PATH" : "PATH")}, then click Refresh.");
         }
 
         using var process = new Process

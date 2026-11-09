@@ -95,12 +95,12 @@ internal static class Tests
         var formatter = new SearchResultFormatter();
         var spans = formatter.Format(empty);
         Check(string.Concat(spans.Select(s => s.Text)).EndsWith("  1: abc\r\n"), "zero-length matches do not drop content");
-        Check(!spans.Any(s => s.Color == Color.OrangeRed), "zero-length matches do not invent a colored character");
+        Check(!spans.Any(s => s.Color == ResultColor.OrangeRed), "zero-length matches do not invent a colored character");
         Check(spans[0].FilePath == empty.NavigationPath && spans[0].IsFileHeading, "navigation heading metadata");
         var context = parser.Parse(Message(Encoding.UTF8.GetBytes("\n"), [], type: "context", lineNumber: 3))[0];
         spans = formatter.Format(context);
         Check(string.Concat(spans.Select(s => s.Text)) == "  --\r\n  3- \r\n", "context gaps and blank context lines");
-        Check(spans.Any(s => s.Color == Color.DarkGray), "context number color");
+        Check(spans.Any(s => s.Color == ResultColor.DarkGray), "context number color");
         var multiline = parser.Parse(Message(Encoding.UTF8.GetBytes("ab\r\ncd\n"), [(1, 5)]));
         Check(multiline.Count == 2 && multiline[1].LineNumber == 2, "multiline record physical lines");
         Check(multiline[0].Matches[0] == new MatchRange(1, 1) && multiline[1].Matches[0] == new MatchRange(0, 1), "multiline ranges clipped to content");
@@ -124,7 +124,7 @@ internal static class Tests
             var nulSpans = new SearchResultFormatter().Format(nul);
             Check(nul.Text == "before\0needle\0after", "structured text retains NUL characters");
             Check(string.Concat(nulSpans.Select(s => s.Text)).Contains("before␀needle␀after") && !nulSpans.Any(s => s.Text.Contains('\0')), "formatted NUL markers shared by UI and exports");
-            Check(nulSpans.Single(s => s.Color == Color.OrangeRed).Text == "needle", "NUL representation preserves highlight offsets");
+            Check(nulSpans.Single(s => s.Color == ResultColor.OrangeRed).Text == "needle", "NUL representation preserves highlight offsets");
         }
         var random = new Random(1729);
         for (int i = 0; i < 100; i++)
@@ -657,7 +657,7 @@ internal static class Tests
         pattern.Text = "^";
         Pump(StartSearch(form));
         report = Field<SearchReport>(form, "searchReport");
-        Check(report.Results.Count(l => l.IsMatch) == 82 && !report.Spans.Any(s => s.Color == Color.OrangeRed), "zero-length UI matches retain line counts without false highlighting");
+        Check(report.Results.Count(l => l.IsMatch) == 82 && !report.Spans.Any(s => s.Color == ResultColor.OrangeRed), "zero-length UI matches retain line counts without false highlighting");
         pattern.Text = "missing-word";
         Pump(StartSearch(form));
         Check(output.Text == "No matches found." && Field<SearchReport>(form, "searchReport").Results.Count == 0, "no-match UI output");
@@ -705,7 +705,7 @@ internal static class Tests
         }
         using (var directNul = new RichTextBox())
         {
-            directNul.SelectedRtf = ResultRtfBuilder.Build([new ResultSpan("before\0needle\r\n", Color.White, FontStyle.Regular)]);
+            directNul.SelectedRtf = ResultRtfBuilder.Build([new ResultSpan("before\0needle\r\n", ResultColor.White, ResultTextStyle.Regular)]);
             Check(directNul.Text == "before␀needle\n", "RTF builder handles direct NUL spans defensively");
         }
         Field<CheckBox>(form, "useRipgrepAllCheckBox").Checked = false;
@@ -718,7 +718,7 @@ internal static class Tests
         Pump(StartSearch(form));
         report = Field<SearchReport>(form, "searchReport");
         Check(report.Results.Single().Matches.Count == 10_000, "nested repeats with fallback use engine offsets without .NET backtracking");
-        Check(report.Spans.Count(s => s.Color == Color.OrangeRed) == 1 && report.Spans.Single(s => s.Color == Color.OrangeRed).Text.Length == 10_000, "adjacent matches coalesce into one visual run");
+        Check(report.Spans.Count(s => s.Color == ResultColor.OrangeRed) == 1 && report.Spans.Single(s => s.Color == ResultColor.OrangeRed).Text.Length == 10_000, "adjacent matches coalesce into one visual run");
 
         string largeFolder = Path.Combine(fixtures, "large");
         Directory.CreateDirectory(largeFolder);

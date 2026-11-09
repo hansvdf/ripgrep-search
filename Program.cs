@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Channels;
 
 namespace RipgrepSearch;
@@ -46,20 +45,6 @@ internal static class Program
 
         return null;
     }
-}
-
-internal sealed class AppSettings
-{
-    public List<string> FolderHistory { get; set; } = [];
-    public List<string> SearchHistory { get; set; } = [];
-    public bool ShowCommand { get; set; } = false;
-    public bool ShowSearchOptions { get; set; } = true;
-    public int BeforeContext { get; set; } = 0;
-    public int AfterContext { get; set; } = 0;
-    public bool UseRipgrepAll { get; set; } = false;
-    public bool SortEnabled { get; set; } = false;
-    public string SortBy { get; set; } = "path";
-    public bool SortDescending { get; set; } = false;
 }
 
 internal sealed class SortGroupBox : GroupBox
@@ -123,7 +108,6 @@ internal sealed class MainForm : Form
     private bool closeAfterSearch;
 
     private readonly Dictionary<int, string> fileLineMap = new();
-    private readonly string settingsFolder;
     private readonly string settingsFile;
     private readonly AppSettings settings;
     private readonly string? startupFolder;
@@ -131,11 +115,11 @@ internal sealed class MainForm : Form
     public MainForm(string? startupFolder = null, string? settingsDirectory = null)
     {
         this.startupFolder = startupFolder;
-        settingsFolder = settingsDirectory ?? Path.Combine(
+        string settingsFolder = settingsDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "RipgrepSearch");
         settingsFile = Path.Combine(settingsFolder, "settings.json");
-        settings = LoadSettings();
+        settings = AppSettingsStore.Load(settingsFile);
 
         Text = "Ripgrep Search";
         StartPosition = FormStartPosition.CenterScreen;
@@ -624,9 +608,9 @@ internal sealed class MainForm : Form
             if (searchReport.Results.Count == 0 && outcome.Completion == SearchCompletion.Completed)
                 WritePlainOutput("No matches found.");
             if (outcome.Completion != SearchCompletion.Completed)
-                AppendColoredText($"\r\n{outcome.Reason}\r\n", Color.Gray);
+                AppendColoredText($"\r\n{outcome.Reason}\r\n", ResultColor.Gray);
             if (!string.IsNullOrWhiteSpace(outcome.Diagnostics))
-                AppendColoredText($"\r\nDiagnostics:\r\n{outcome.Diagnostics.TrimEnd()}\r\n", Color.Gray);
+                AppendColoredText($"\r\nDiagnostics:\r\n{outcome.Diagnostics.TrimEnd()}\r\n", ResultColor.Gray);
             searchReport.Status = statusLabel.Text;
             outputTextBox.Select(0, 0);
             outputTextBox.ScrollToCaret();
@@ -726,13 +710,13 @@ internal sealed class MainForm : Form
         outputTextBox.Clear();
         fileLineMap.Clear();
         searchReport?.Spans.Clear();
-        AppendColoredText(text, Color.White);
+        AppendColoredText(text, ResultColor.White);
     }
 
     private void AppendColoredText(
         string text,
-        Color color,
-        FontStyle style = FontStyle.Regular,
+        ResultColor color,
+        ResultTextStyle style = ResultTextStyle.Regular,
         string? filePath = null)
     {
         if (filePath is not null)
@@ -750,8 +734,11 @@ internal sealed class MainForm : Form
         int start = outputTextBox.TextLength;
         outputTextBox.AppendText(text);
         outputTextBox.Select(start, text.Length);
-        outputTextBox.SelectionColor = color;
-        using var font = new Font(outputTextBox.Font, style);
+        var rgb = ResultPalette.GetRgb(color);
+        outputTextBox.SelectionColor = Color.FromArgb(rgb.R, rgb.G, rgb.B);
+        using var font = new Font(outputTextBox.Font,
+            (style.HasFlag(ResultTextStyle.Bold) ? FontStyle.Bold : FontStyle.Regular) |
+            (style.HasFlag(ResultTextStyle.Underline) ? FontStyle.Underline : FontStyle.Regular));
         outputTextBox.SelectionFont = font;
         outputTextBox.Select(outputTextBox.TextLength, 0);
     }
@@ -893,22 +880,6 @@ internal sealed class MainForm : Form
         outputTextBox.UseWaitCursor = busy;
     }
 
-    private AppSettings LoadSettings()
-    {
-        try
-        {
-            if (!File.Exists(settingsFile))
-                return new AppSettings();
-
-            string json = File.ReadAllText(settingsFile);
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
-        }
-        catch
-        {
-            return new AppSettings();
-        }
-    }
-
     private void SaveCurrentSettings()
     {
         settings.ShowCommand = showCommandMenuItem.Checked;
@@ -942,19 +913,7 @@ internal sealed class MainForm : Form
             ];
         }
 
-        try
-        {
-            Directory.CreateDirectory(settingsFolder);
-            string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-            File.WriteAllText(settingsFile, json);
-        }
-        catch
-        {
-            // Settings persistence should never prevent the search tool from working.
-        }
+        AppSettingsStore.Save(settingsFile, settings);
     }
 
     private void ShowError(string message)

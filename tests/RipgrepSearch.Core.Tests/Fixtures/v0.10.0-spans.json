@@ -1,0 +1,163 @@
+[
+  {
+    "Text": "first [#] café.txt\r\n",
+    "Color": "DeepSkyBlue",
+    "Style": "Bold, Underline",
+    "FilePath": "<FIRST_PATH>",
+    "IsFileHeading": true
+  },
+  {
+    "Text": "  1: ",
+    "Color": "LimeGreen",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "café 😀 ",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "needle",
+    "Color": "OrangeRed",
+    "Style": "Bold",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": " ",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "needle",
+    "Color": "OrangeRed",
+    "Style": "Bold",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": " <>& `",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "\r\n",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "  2- ",
+    "Color": "DarkGray",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "context\t{} \\",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "\r\n",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "  --\r\n",
+    "Color": "Gray",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "  5- ",
+    "Color": "DarkGray",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "a␀b",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "\r\n",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "  6: ",
+    "Color": "LimeGreen",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "abc",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "\r\n",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "\r\n",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "unopenable.txt\r\n",
+    "Color": "DeepSkyBlue",
+    "Style": "Bold, Underline",
+    "FilePath": null,
+    "IsFileHeading": true
+  },
+  {
+    "Text": "  1: ",
+    "Color": "LimeGreen",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "```",
+    "Color": "OrangeRed",
+    "Style": "Bold",
+    "FilePath": null,
+    "IsFileHeading": false
+  },
+  {
+    "Text": "\r\n",
+    "Color": "White",
+    "Style": "Regular",
+    "FilePath": null,
+    "IsFileHeading": false
+  }
+]

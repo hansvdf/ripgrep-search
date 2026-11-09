@@ -8,7 +8,11 @@ internal static class ExecutableResolver
     internal static string? ResolveSearchTool(bool useRipgrepAll, string? searchPath)
     {
         string name = useRipgrepAll ? "rga" : "rg";
-        return FindExecutable(name + ".exe", searchPath) ?? FindExecutable(name, searchPath);
+        // Keep Windows' original .exe-first precedence across the entire PATH.
+        // Unix searches extensionless names; successful execution is checked by the caller.
+        return OperatingSystem.IsWindows()
+            ? FindExecutable(name + ".exe", searchPath) ?? FindExecutable(name, searchPath)
+            : FindExecutable(name, searchPath);
     }
 
     private static string? FindExecutable(string executable, string? searchPath)

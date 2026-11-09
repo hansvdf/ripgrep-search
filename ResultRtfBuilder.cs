@@ -1,4 +1,3 @@
-using System.Drawing;
 using System.Globalization;
 using System.Text;
 
@@ -8,20 +7,23 @@ internal static class ResultRtfBuilder
 {
     public static string Build(IReadOnlyList<ResultSpan> spans)
     {
-        Color[] colors = spans.Select(span => span.Color).Distinct().ToArray();
+        ResultColor[] colors = spans.Select(span => span.Color).Distinct().ToArray();
         var rtf = new StringBuilder("{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Consolas;}}{\\colortbl ;");
-        foreach (Color color in colors)
-            rtf.Append($"\\red{color.R}\\green{color.G}\\blue{color.B};");
+        foreach (ResultColor color in colors)
+        {
+            var rgb = ResultPalette.GetRgb(color);
+            rtf.Append($"\\red{rgb.R}\\green{rgb.G}\\blue{rgb.B};");
+        }
         rtf.Append("}\\f0\\fs20 ");
-        Color? previousColor = null;
-        FontStyle? previousStyle = null;
+        ResultColor? previousColor = null;
+        ResultTextStyle? previousStyle = null;
         foreach (ResultSpan span in spans)
         {
             if (previousColor != span.Color || previousStyle != span.Style)
             {
                 rtf.Append("\\cf").Append(Array.IndexOf(colors, span.Color) + 1)
-                    .Append(span.Style.HasFlag(FontStyle.Bold) ? "\\b" : "\\b0")
-                    .Append(span.Style.HasFlag(FontStyle.Underline) ? "\\ul " : "\\ulnone ");
+                    .Append(span.Style.HasFlag(ResultTextStyle.Bold) ? "\\b" : "\\b0")
+                    .Append(span.Style.HasFlag(ResultTextStyle.Underline) ? "\\ul " : "\\ulnone ");
                 previousColor = span.Color;
                 previousStyle = span.Style;
             }

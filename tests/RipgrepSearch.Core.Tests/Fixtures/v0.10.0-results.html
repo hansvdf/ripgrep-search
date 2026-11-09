@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ripgrep Search results</title>
+<style>
+body { background: #161616; color: #fff; font-family: 'Segoe UI', sans-serif; margin: 24px; }
+dt { font-weight: bold; margin-top: 12px; }
+dd { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre { background: #000; padding: 16px; overflow-x: auto; font: 10pt Consolas, 'Courier New', monospace; }
+a { color: inherit; }
+</style>
+</head>
+<body>
+<h1>Ripgrep Search results</h1>
+<dl><dt>Folder</dt><dd>folder &lt;&amp;&gt;</dd>
+<dt>Pattern</dt><dd>needle|&#128512;</dd>
+<dt>Command</dt><dd>rg --json &quot;needle|&#128512;&quot; folder</dd>
+<dt>Search started</dt><dd>2026-01-02 03:04:05 +02:00</dd>
+<dt>Status</dt><dd>Search cancelled. 3 matching line(s) shown; results are incomplete.</dd>
+</dl><pre><code><span style="color: DeepSkyBlue; font-weight: bold; text-decoration: underline;"><a href="file:///fixtures/first.txt">first [#] caf&#233;.txt
+</a></span><span style="color: LimeGreen;">  1: </span><span style="color: White;">caf&#233; &#128512; </span><span style="color: OrangeRed; font-weight: bold;">needle</span><span style="color: White;"> </span><span style="color: OrangeRed; font-weight: bold;">needle</span><span style="color: White;"> &lt;&gt;&amp; `</span><span style="color: White;">
+</span><span style="color: DarkGray;">  2- </span><span style="color: White;">context	{} \</span><span style="color: White;">
+</span><span style="color: Gray;">  --
+</span><span style="color: DarkGray;">  5- </span><span style="color: White;">a␀b</span><span style="color: White;">
+</span><span style="color: LimeGreen;">  6: </span><span style="color: White;">abc</span><span style="color: White;">
+</span><span style="color: White;">
+</span><span style="color: DeepSkyBlue; font-weight: bold; text-decoration: underline;">unopenable.txt
+</span><span style="color: LimeGreen;">  1: </span><span style="color: OrangeRed; font-weight: bold;">```</span><span style="color: White;">
+</span></code></pre></body></html>

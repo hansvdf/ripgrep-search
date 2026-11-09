@@ -6,19 +6,25 @@ using RipgrepSearch;
 
 // Package-free portable tests. Child-process fixtures use this executable, so
 // neither Windows Forms nor an installed rg/rga is required for this suite.
-internal static class Tests
+internal static partial class Tests
 {
     private const string Summary = "{\"type\":\"summary\",\"data\":{\"stats\":{\"matches\":999}}}";
     private static int passed;
 
     private static async Task<int> Main(string[] args)
     {
+        if (args is ["--version"])
+            return await FakeVersion();
         if (args.Length > 0 && args[0] == "--fake")
             return await FakeProcess(args[1], args.Skip(2).ToArray());
         try
         {
             ParserTests();
             ArgumentTests();
+            PresentationTests();
+            SettingsTests();
+            DiagnosticsTests();
+            await DependencyProbeTests();
             await RunnerTests();
             Console.WriteLine($"PASS: {passed} portable Core checks ({System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}).");
             return 0;

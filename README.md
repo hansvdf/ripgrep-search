@@ -193,7 +193,7 @@ These steps are for developers. If you downloaded a published executable, you do
 
 **Requirements:** .NET 10 SDK to build this migration checkout, using an IDE that supports that SDK or the command line. The existing Windows Forms application still targets .NET 8; its shared Core library targets both .NET 8 and .NET 10. Published application runtime requirements are unchanged.
 
-The initial extraction moves only search result models, JSON parsing, and process execution into `src/RipgrepSearch.Core`. The Windows Forms interface, settings, dependency resolution, exports, and publish scripts remain in the existing application. See the [v0.10.0 migration baseline](docs/v0.10.0-baseline.md) for preserved behavior, recorded validation, and the temporary .NET 8-only validation procedure for machines without the .NET 10 SDK.
+`src/RipgrepSearch.Core` contains search models, JSON parsing, process execution, portable result formatting/report models, HTML/Markdown exports, settings serialization/storage, executable lookup, dependency probes, and diagnostic report formatting. The Windows Forms application retains its interface and RTF renderer, Windows settings location and PATH-refresh policy, OS integration, and publish scripts. See the [v0.10.0 migration baseline](docs/v0.10.0-baseline.md) for initial validation and the [Core boundaries](docs/core-boundaries.md) for the current extraction and compatibility checks.
 
 Open `RipgrepSearch.csproj` in an IDE supporting the required SDK, or run the included `publish-single-exe.bat` to create a self-contained Windows x64 executable.
 
@@ -237,7 +237,7 @@ To run only the dependency-checker scenarios:
 dotnet run --project tests/RipgrepSearch.Tests/RipgrepSearch.Tests.csproj -c Release -- --dependencies-only
 ```
 
-The shared Core also has a package-free portable regression runner. It references only Core, requires no Windows Forms or installed search tools, and uses its own child processes to exercise output streaming and failures:
+The shared Core also has a package-free portable regression runner. It references only Core, requires no Windows Forms or installed search tools, and uses its own child processes to exercise output streaming and failures. It checks formatting and complete exports against captured v0.10.0 fixtures, settings compatibility, diagnostic reports/redaction, and dependency resolution/probes:
 
 ```powershell
 dotnet run --project tests/RipgrepSearch.Core.Tests/RipgrepSearch.Core.Tests.csproj -c Release -f net8.0

@@ -1,5 +1,3 @@
-using System.Drawing;
-
 namespace RipgrepSearch;
 
 internal sealed class SearchResultFormatter
@@ -16,19 +14,19 @@ internal sealed class SearchResultFormatter
         if (!string.Equals(previousFile, line.FilePath, StringComparison.Ordinal))
         {
             if (previousFile is not null)
-                spans.Add(new ResultSpan("\r\n", Color.White, FontStyle.Regular));
-            spans.Add(new ResultSpan(line.FilePath.Replace('\0', '\u2400') + "\r\n", Color.DeepSkyBlue,
-                FontStyle.Bold | FontStyle.Underline, line.NavigationPath, IsFileHeading: true));
+                spans.Add(new ResultSpan("\r\n", ResultColor.White, ResultTextStyle.Regular));
+            spans.Add(new ResultSpan(line.FilePath.Replace('\0', '\u2400') + "\r\n", ResultColor.DeepSkyBlue,
+                ResultTextStyle.Bold | ResultTextStyle.Underline, line.NavigationPath, IsFileHeading: true));
         }
         else if (line.LineNumber > previousLine + 1)
         {
-            spans.Add(new ResultSpan("  --\r\n", Color.Gray, FontStyle.Regular));
+            spans.Add(new ResultSpan("  --\r\n", ResultColor.Gray, ResultTextStyle.Regular));
         }
         previousFile = line.FilePath;
         previousLine = line.LineNumber;
 
         spans.Add(new ResultSpan($"  {line.LineNumber}{(line.IsMatch ? ':' : '-')} ",
-            line.IsMatch ? Color.LimeGreen : Color.DarkGray, FontStyle.Regular));
+            line.IsMatch ? ResultColor.LimeGreen : ResultColor.DarkGray, ResultTextStyle.Regular));
         int position = 0;
         if (line.IsMatch)
         {
@@ -50,14 +48,14 @@ internal sealed class SearchResultFormatter
                 if (end <= start)
                     continue;
                 if (start > position)
-                    spans.Add(new ResultSpan(text[position..start], Color.White, FontStyle.Regular));
-                spans.Add(new ResultSpan(text[start..end], Color.OrangeRed, FontStyle.Bold));
+                    spans.Add(new ResultSpan(text[position..start], ResultColor.White, ResultTextStyle.Regular));
+                spans.Add(new ResultSpan(text[start..end], ResultColor.OrangeRed, ResultTextStyle.Bold));
                 position = end;
             }
         }
         if (position < text.Length)
-            spans.Add(new ResultSpan(text[position..], Color.White, FontStyle.Regular));
-        spans.Add(new ResultSpan("\r\n", Color.White, FontStyle.Regular));
+            spans.Add(new ResultSpan(text[position..], ResultColor.White, ResultTextStyle.Regular));
+        spans.Add(new ResultSpan("\r\n", ResultColor.White, ResultTextStyle.Regular));
         return spans;
     }
 }

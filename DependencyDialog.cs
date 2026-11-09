@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Text.RegularExpressions;
 
 namespace RipgrepSearch;
 
@@ -33,7 +31,7 @@ internal sealed class DependencyDialog : Form
     public DependencyDialog(Func<CancellationToken, Task<DependencyCheckResult[]>>? checkDependencies = null,
         Action<string>? copyToClipboard = null)
     {
-        this.checkDependencies = checkDependencies ?? DependencyChecker.CheckAllAsync;
+        this.checkDependencies = checkDependencies ?? WindowsDependencies.CheckAllAsync;
         this.copyToClipboard = copyToClipboard ?? (text => Clipboard.SetText(text, TextDataFormat.UnicodeText));
         Text = "Check Dependencies";
         Font = new Font("Segoe UI", 9F);
@@ -320,43 +318,9 @@ internal sealed class DependencyDialog : Form
         copyFeedbackTimer.Start();
     }
 
-    private string CreateDiagnosticsReport()
-    {
-        var report = new StringBuilder();
-        report.AppendLine("Ripgrep Search — Dependency Diagnostics");
-        report.AppendLine($"Application version: {Application.ProductVersion.Split('+')[0]}");
-        report.AppendLine($"Windows version: {RuntimeInformation.OSDescription}");
-        foreach (DependencyCheckResult result in lastResults)
-        {
-            report.AppendLine();
-            report.AppendLine(result.Dependency.DisplayName);
-            string status = result.Status == DependencyStatus.NotFound ? "Not found" : result.Status.ToString();
-            report.AppendLine($"Status: {status}");
-            report.AppendLine($"Version: {result.Version ?? "Not available"}");
-            report.AppendLine($"Executable path: {result.ExecutablePath ?? "Not available"}");
-            if (result.Status != DependencyStatus.Installed && !string.IsNullOrWhiteSpace(result.Details))
-            {
-                report.AppendLine("Diagnostics:");
-                report.AppendLine(result.Details);
-            }
-        }
-        return RedactUserProfile(report.ToString(), Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-    }
-
-    internal static string RedactUserProfile(string text, string? userProfile)
-    {
-        if (string.IsNullOrWhiteSpace(userProfile))
-            return text;
-        string profile = userProfile.TrimEnd('\\', '/');
-        if (profile.Length == 0)
-            return text;
-        string pathPattern = Regex.Escape(profile.Replace('\\', '/')).Replace("/", @"[\\/]+");
-        // Match whole directory names, allowing either separator and Windows casing.
-        // Keep the following delimiter so quoted paths and messages retain their format.
-        return Regex.Replace(text, pathPattern + @"([\\/\s""'<>)\]},;:]|$)",
-            match => "%USERPROFILE%" + match.Groups[1].Value,
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-    }
+    private string CreateDiagnosticsReport() => DependencyDiagnostics.CreateReport(lastResults,
+        Application.ProductVersion.Split('+')[0], RuntimeInformation.OSDescription,
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), operatingSystemLabel: "Windows version");
 
     private void PaintStatusCell(object? sender, DataGridViewCellPaintingEventArgs e)
     {

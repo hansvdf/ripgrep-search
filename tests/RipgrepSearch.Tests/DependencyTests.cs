@@ -97,7 +97,7 @@ internal static class DependencyTests
         await PathRefreshTests();
 
         // Validate real installed tools as well as the isolated dependency scenarios.
-        results = await DependencyChecker.CheckAllAsync();
+        results = await WindowsDependencies.CheckAllAsync();
         foreach (DependencyCheckResult result in results)
         {
             Check(result.ExecutablePath == ExecutableResolver.ResolveSearchTool(result.Dependency.UseRipgrepAll), "real checker reports actual search executable");
@@ -494,23 +494,23 @@ internal static class DependencyTests
     private static void DiagnosticRedactionTests()
     {
         const string profile = @"C:\Users\Test User";
-        Check(DependencyDialog.RedactUserProfile(@"C:\Users\Test User\scoop\shims\rg.exe", profile) ==
+        Check(DependencyDiagnostics.RedactUserProfile(@"C:\Users\Test User\scoop\shims\rg.exe", profile) ==
             @"%USERPROFILE%\scoop\shims\rg.exe", "profile prefix is replaced while preserving the executable location");
-        Check(DependencyDialog.RedactUserProfile(@"c:\USERS\TEST USER\rg.exe", profile + "\\") ==
+        Check(DependencyDiagnostics.RedactUserProfile(@"c:\USERS\TEST USER\rg.exe", profile + "\\") ==
             @"%USERPROFILE%\rg.exe", "profile matching handles Windows casing and trailing separators");
-        Check(DependencyDialog.RedactUserProfile("C:/Users/Test User/tools/rg.exe", profile) ==
+        Check(DependencyDiagnostics.RedactUserProfile("C:/Users/Test User/tools/rg.exe", profile) ==
             "%USERPROFILE%/tools/rg.exe", "forward-slash paths are also redacted");
-        Check(DependencyDialog.RedactUserProfile(@"Failed to execute C:\\Users\\Test User\\tools\\rg.exe", profile) ==
+        Check(DependencyDiagnostics.RedactUserProfile(@"Failed to execute C:\\Users\\Test User\\tools\\rg.exe", profile) ==
             @"Failed to execute %USERPROFILE%\\tools\\rg.exe", "escaped paths in tool error output are redacted");
-        Check(DependencyDialog.RedactUserProfile(@"C:\Users\Zoë [test]\rg.exe", @"C:\Users\Zoë [test]") ==
+        Check(DependencyDiagnostics.RedactUserProfile(@"C:\Users\Zoë [test]\rg.exe", @"C:\Users\Zoë [test]") ==
             @"%USERPROFILE%\rg.exe", "Unicode and pattern characters in profile names are literal");
         const string otherPaths = @"C:\Users\Test User2\rg.exe; C:\Users\Test User.old\rga.exe; C:\Tools\rg.exe";
-        Check(DependencyDialog.RedactUserProfile(otherPaths, profile) == otherPaths,
+        Check(DependencyDiagnostics.RedactUserProfile(otherPaths, profile) == otherPaths,
             "similar profile prefixes and paths outside the current profile are preserved");
-        Check(DependencyDialog.RedactUserProfile($"\"{profile}\"; ({profile})\r\n{profile}", profile) ==
+        Check(DependencyDiagnostics.RedactUserProfile($"\"{profile}\"; ({profile})\r\n{profile}", profile) ==
             "\"%USERPROFILE%\"; (%USERPROFILE%)\r\n%USERPROFILE%", "quoted paths, punctuation, and exact profile roots are redacted");
-        Check(DependencyDialog.RedactUserProfile(otherPaths, null) == otherPaths &&
-            DependencyDialog.RedactUserProfile(otherPaths, "") == otherPaths,
+        Check(DependencyDiagnostics.RedactUserProfile(otherPaths, null) == otherPaths &&
+            DependencyDiagnostics.RedactUserProfile(otherPaths, "") == otherPaths,
             "an unavailable profile never replaces empty strings");
     }
 
@@ -599,7 +599,7 @@ internal static class DependencyTests
     {
         string directory = Path.Combine(fixtures, name);
         Directory.CreateDirectory(directory);
-        foreach (string file in new[] { "RipgrepSearch.Tests.dll", "RipgrepSearch.Tests.deps.json", "RipgrepSearch.Tests.runtimeconfig.json", "RipgrepSearch.dll" })
+        foreach (string file in new[] { "RipgrepSearch.Tests.dll", "RipgrepSearch.Tests.deps.json", "RipgrepSearch.Tests.runtimeconfig.json", "RipgrepSearch.dll", "RipgrepSearch.Core.dll" })
             File.Copy(Path.Combine(AppContext.BaseDirectory, file), Path.Combine(directory, file));
         if (rg) File.Copy(Path.Combine(AppContext.BaseDirectory, "RipgrepSearch.Tests.exe"), Path.Combine(directory, "rg.exe"));
         if (rga) File.Copy(Path.Combine(AppContext.BaseDirectory, "RipgrepSearch.Tests.exe"), Path.Combine(directory, "rga.exe"));
