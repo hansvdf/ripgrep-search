@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -20,6 +21,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ViewModel = viewModel;
         DataContext = viewModel;
+        ConfigureNativeMenu();
         ResultsEditor.TextArea.TextView.LineTransformers.Add(new ResultColorizer(viewModel.Results));
         // Never turn arbitrary result text into clickable external URLs.
         ResultsEditor.Options.EnableHyperlinks = false;
@@ -34,6 +36,29 @@ public sealed partial class MainWindow : Window
             await ViewModel.InitializeAsync();
             if (!closePending) PatternInput.Focus();
         };
+    }
+
+    private void ConfigureNativeMenu()
+    {
+        var options = new NativeMenuItem("Show Search Options") { ToggleType = MenuItemToggleType.CheckBox };
+        var command = new NativeMenuItem("Show Command") { ToggleType = MenuItemToggleType.CheckBox };
+        options.Bind(NativeMenuItem.IsCheckedProperty, new Binding(nameof(SearchViewModel.ShowSearchOptions)) { Source = ViewModel, Mode = BindingMode.OneWay });
+        command.Bind(NativeMenuItem.IsCheckedProperty, new Binding(nameof(SearchViewModel.ShowCommand)) { Source = ViewModel, Mode = BindingMode.OneWay });
+        options.Click += (_, _) => { if (ViewModel.CanChangeView) ViewModel.ShowSearchOptions = !ViewModel.ShowSearchOptions; };
+        command.Click += (_, _) => { if (ViewModel.CanChangeView) ViewModel.ShowCommand = !ViewModel.ShowCommand; };
+        var view = new NativeMenuItem("View") { Menu = new NativeMenu { options, command } };
+        foreach (NativeMenuItem item in new[] { view, options, command })
+            item.Bind(NativeMenuItem.IsEnabledProperty, new Binding(nameof(SearchViewModel.CanChangeView)) { Source = ViewModel, Mode = BindingMode.OneWay });
+
+        // Only hide the in-window fallback once a platform exporter takes over.
+        // Headless/Windows and desktops without global menus keep the regular menu.
+        PropertyChanged += (_, change) =>
+        {
+            if (change.Property == NativeMenu.IsNativeMenuExportedProperty)
+                MainMenu.IsVisible = !NativeMenu.GetIsNativeMenuExported(this);
+        };
+        NativeMenu.SetMenu(this, new NativeMenu { view });
+        MainMenu.IsVisible = !NativeMenu.GetIsNativeMenuExported(this);
     }
 
     private static void HistoryKeyDown(object? sender, KeyEventArgs e)

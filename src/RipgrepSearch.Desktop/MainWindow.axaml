@@ -4,9 +4,17 @@
         xmlns:editor="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         x:Class="RipgrepSearch.Desktop.MainWindow" x:DataType="local:SearchViewModel"
         Title="Ripgrep Search — Avalonia Preview" Width="1080" Height="740"
-        MinWidth="680" MinHeight="440" Background="#181B20">
+        MinWidth="780" MinHeight="680" Background="#181B20">
   <Grid RowDefinitions="Auto,*,Auto" Margin="20" RowSpacing="14">
-    <StackPanel Spacing="14">
+    <StackPanel Spacing="10">
+      <Menu x:Name="MainMenu" IsEnabled="{Binding CanChangeView}" Background="Transparent">
+        <MenuItem Header="_View">
+          <MenuItem x:Name="ShowOptionsMenuItem" Header="Show Search _Options" ToggleType="CheckBox"
+                    IsChecked="{Binding ShowSearchOptions, Mode=TwoWay}" />
+          <MenuItem x:Name="ShowCommandMenuItem" Header="Show _Command" ToggleType="CheckBox"
+                    IsChecked="{Binding ShowCommand, Mode=TwoWay}" />
+        </MenuItem>
+      </Menu>
       <Grid ColumnDefinitions="*,Auto">
         <StackPanel>
           <TextBlock Text="Ripgrep Search" FontSize="24" FontWeight="SemiBold" />
@@ -33,6 +41,36 @@
           <Button Content="_Cancel" Command="{Binding CancelCommand}" />
         </StackPanel>
       </Grid>
+      <StackPanel x:Name="SearchOptions" IsVisible="{Binding ShowSearchOptions}" IsEnabled="{Binding CanSearch}" Spacing="8">
+        <WrapPanel>
+          <Label Content="_Before:" Target="{Binding #BeforeInput}" VerticalAlignment="Center" />
+          <NumericUpDown x:Name="BeforeInput" Value="{Binding BeforeContext, Mode=TwoWay}" Minimum="0" Maximum="100"
+                         Increment="1" FormatString="0" ParsingNumberStyle="Integer" ClipValueToMinMax="True" Width="120"
+                         AutomationProperties.Name="Before context lines" />
+          <Label Content="_After:" Target="{Binding #AfterInput}" VerticalAlignment="Center" Margin="10,0,0,0" />
+          <NumericUpDown x:Name="AfterInput" Value="{Binding AfterContext, Mode=TwoWay}" Minimum="0" Maximum="100"
+                         Increment="1" FormatString="0" ParsingNumberStyle="Integer" ClipValueToMinMax="True" Width="120"
+                         AutomationProperties.Name="After context lines" />
+          <CheckBox x:Name="EngineInput" Content="Search Office/PDF files with _rga" IsChecked="{Binding UseRipgrepAll, Mode=TwoWay}"
+                    Margin="18,0,0,0" />
+        </WrapPanel>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <CheckBox x:Name="SortEnabledInput" Content="_Sort" IsChecked="{Binding SortEnabled, Mode=TwoWay}" />
+          <ComboBox x:Name="SortFieldInput" ItemsSource="{Binding SortFields}" SelectedItem="{Binding SortBy, Mode=TwoWay}"
+                    IsEnabled="{Binding CanChooseSort}" Width="120" AutomationProperties.Name="Sort by" />
+          <Label Content="Order:" VerticalAlignment="Center" Target="{Binding #SortOrderInput}" />
+          <ComboBox x:Name="SortOrderInput" ItemsSource="{Binding SortOrders}" SelectedIndex="{Binding SortOrderIndex, Mode=TwoWay}"
+                    IsEnabled="{Binding CanChooseSort}" Width="145" AutomationProperties.Name="Sort order" />
+        </StackPanel>
+      </StackPanel>
+      <StackPanel x:Name="CommandSection" IsVisible="{Binding ShowCommand}" Spacing="4">
+        <TextBlock Text="{Binding CommandLabel}" />
+        <TextBox x:Name="CommandInput" Text="{Binding CommandPreview, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                 TextWrapping="Wrap" Height="60" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 AutomationProperties.Name="Command preview" />
+        <TextBlock Text="Command preview is for display. Searches pass arguments directly to the executable, without a shell."
+                   Foreground="#929CAB" FontSize="11" TextWrapping="Wrap" />
+      </StackPanel>
     </StackPanel>
     <Border Grid.Row="1" BorderBrush="#343B46" BorderThickness="1" CornerRadius="4" ClipToBounds="True" Background="Black">
       <editor:TextEditor x:Name="ResultsEditor" Document="{Binding Results.Document}"

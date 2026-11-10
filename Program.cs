@@ -654,16 +654,7 @@ internal sealed class MainForm : Form
         string executableName,
         IEnumerable<string> arguments)
     {
-        return executableName + " " + string.Join(" ", arguments.Select(QuoteForDisplay));
-    }
-
-    private static string QuoteForDisplay(string argument)
-    {
-        bool needsQuotes = argument.Length == 0 || argument.Any(char.IsWhiteSpace) || argument.Contains('"');
-        if (!needsQuotes)
-            return argument;
-
-        return '"' + argument.Replace("\\", "\\\\").Replace("\"", "\\\"") + '"';
+        return SearchCommandFormatter.Format(executableName, arguments);
     }
 
     private async Task RenderResultsAsync(ChannelReader<IReadOnlyList<SearchResultLine>> reader,

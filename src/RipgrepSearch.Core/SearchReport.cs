@@ -28,7 +28,8 @@ internal static class ResultPalette
 public sealed record ResultSpan(string Text, ResultColor Color, ResultTextStyle Style,
     string? FilePath = null, bool IsFileHeading = false);
 
-internal sealed record SearchReport(string Folder, string Pattern, string Command, DateTimeOffset StartedAt)
+/// <summary>Captured search metadata, raw displayed results and presentation spans in display order.</summary>
+public sealed record SearchReport(string Folder, string Pattern, string Command, DateTimeOffset StartedAt)
 {
     public List<ResultSpan> Spans { get; } = [];
     public List<SearchResultLine> Results { get; } = [];

@@ -11,8 +11,8 @@ using RipgrepSearch.Desktop;
 internal static partial class Tests
 {
     private static SearchViewModel CreateViewModel(string? folder = null, Func<string?>? resolver = null,
-        DesktopEnvironment? environment = null, Func<string, AppSettings>? loader = null) => new(folder,
-            resolver ?? (() => ExecutableResolver.ResolveSearchTool(false)), environment ?? TestEnvironment(), loader);
+        DesktopEnvironment? environment = null, Func<string, AppSettings>? loader = null, Func<bool, string?>? engineResolver = null) => new(folder,
+            engineResolver ?? (useRga => resolver is null ? ExecutableResolver.ResolveSearchTool(useRga) : resolver()), environment ?? TestEnvironment(), loader);
 
     private static DesktopEnvironment TestEnvironment(DesktopPlatform? platform = null)
     {

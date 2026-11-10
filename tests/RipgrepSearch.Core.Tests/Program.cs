@@ -21,6 +21,7 @@ internal static partial class Tests
         {
             ParserTests();
             ArgumentTests();
+            CommandPreviewTests();
             PresentationTests();
             SettingsTests();
             HistoryTests();

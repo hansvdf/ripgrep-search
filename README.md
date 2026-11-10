@@ -246,7 +246,7 @@ dotnet run --project tests/RipgrepSearch.Core.Tests/RipgrepSearch.Core.Tests.csp
 
 These portable checks supplement the existing real rg/rga integration and Windows UI tests; they do not establish macOS/Linux compatibility by themselves.
 
-## Avalonia desktop preview (Phase 4)
+## Avalonia desktop preview (Phases 4–5.3)
 
 The working Windows release remains **v0.10.0**. A separate, experimental .NET 10 desktop host now lives in `src/RipgrepSearch.Desktop`. It uses Avalonia **12.1.5** and AvaloniaEdit **12.0.0**, sharing the existing Core search pipeline. It is not yet a replacement for the Windows Forms application.
 
@@ -264,7 +264,13 @@ Enter outside a history dropdown or Search starts a search; Cancel or Escape sto
 
 Desktop settings are isolated from WinForms: `%APPDATA%\RipgrepSearch.Desktop\settings.json` on Windows, `~/Library/Application Support/RipgrepSearch.Desktop/settings.json` on macOS, and `$XDG_CONFIG_HOME/RipgrepSearch.Desktop/settings.json` (default `~/.config/RipgrepSearch.Desktop/settings.json`) on Linux. Relative XDG directories are ignored. No stable Windows settings are imported or changed. Histories are saved at validated search startup and normal close, including typed-but-unsearched values on close. Folder deduplication ignores case on Windows and is ordinal on Unix; patterns use exact ordinal comparison everywhere. See [Phase 5.2 settings/history validation](docs/phase5.2-settings-history.md).
 
-The preview uses its inherited process `PATH`; it does not read shell profiles or refresh Windows registry settings. If `rg` is missing, launch from a terminal with the correct `PATH`. It does not use `rga` or provide menus, sorting controls, context controls, exports, or dependency-checker UI yet. Saved values for those existing preferences are retained for later phases but do not activate those features in this preview.
+The preview now includes the existing Windows search options: independent **Before/After** context counts (0–100, default 0), **Search Office/PDF files with rga** (default off), and optional file sorting by path/modified/accessed/created in ascending or descending order (default off, path/ascending retained). `rga`, its `rg` backend and any converters must be installed separately; selecting an unavailable engine reports an error without switching engines.
+
+**View → Show Search Options** and **View → Show Command** toggle independently and persist immediately. On macOS, View is exported to the native menu bar at the top of the screen. The in-window menu remains as a fallback on platforms without native menu export. Options are shown and the command is hidden by default. Hidden options stay active and the read-only command preview keeps updating. The preview uses the same Core argument builder as execution and the original Windows display quoting; it is a human-readable string, not a shell command. Desktop passes normalized absolute folder paths to the engine, including when you type a relative path.
+
+Each executed search retains a Core report containing its original metadata, raw displayed result lines, presentation spans and completion status. Later edits do not alter that report. Export/save workflows remain for Phase 5.4; only the View menu exists at this stage. Help/dependency dialogs are still deferred. See [Phase 5.3 implementation and validation](docs/phase5.3-search-options-report-view.md).
+
+The preview uses its inherited process `PATH`; it does not read shell profiles or refresh Windows registry settings. If a tool is missing, launch from a terminal with the correct `PATH`. No literal/case/whole-word/glob/additional-arguments controls were added: the stable WinForms UI does not expose those switches either.
 
 Build and validate on macOS:
 

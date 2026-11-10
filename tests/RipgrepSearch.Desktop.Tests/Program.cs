@@ -24,7 +24,8 @@ internal static partial class Tests
     [STAThread]
     private static async Task<int> Main(string[] args)
     {
-        if (args.Length > 0 && args[0] == "--fake-rg") return await FakeRg(args[1]);
+        if (args.Length > 0 && args[0] == "--fake-rg") return await FakeRg(args[1], args.Skip(2).ToArray());
+        if (args is ["--native-menu-smoke"]) return NativeMenuSmoke();
         try
         {
             Directory.CreateDirectory(Root);
@@ -35,6 +36,7 @@ internal static partial class Tests
                 try
                 {
                     await SettingsHistoryTests();
+                    await SearchOptionsReportViewTests();
                     await DocumentTests();
                     await SearchTests();
                     await LifetimeTests();
@@ -162,7 +164,7 @@ internal static partial class Tests
         string host = Environment.ProcessPath!;
         string command = Path.GetFileNameWithoutExtension(host) == "dotnet"
             ? $"{Quote(host)} {Quote(typeof(Tests).Assembly.Location)}" : Quote(host);
-        File.WriteAllText(path, $"#!/bin/sh\nexec {command} --fake-rg {Quote(mode)}\n");
+        File.WriteAllText(path, $"#!/bin/sh\nexec {command} --fake-rg {Quote(mode)} \"$@\"\n");
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         return path;
     }
@@ -188,6 +190,9 @@ internal static partial class Tests
         await search;
         Check(vm.Status.StartsWith("Search cancelled") && vm.CanSearch, "Escape cancels and restores input state");
         Check(HasExited(pid) && HasExited(descendant), "cancellation terminates process and descendant");
+        AssertReportMatchesDocument(vm);
+        Check(vm.CurrentReport!.Status.Contains("incomplete") && vm.CurrentReport.Results.Count == vm.MatchingLines,
+            "cancelled report captures only displayed results and partial completion");
         Console.WriteLine($"MEASURE quiet cancellation: {watch.Elapsed.TotalMilliseconds:F1} ms");
         search = vm.SearchAsync();
         await WaitUntil(() => vm.BatchCount > 0);
@@ -259,7 +264,11 @@ internal static partial class Tests
         Render(window);
         Check(vm.MatchingLines == 10_000 && vm.Status.StartsWith("Display limit reached"), "10,000-line cap retained with many matching files");
         Check(vm.BatchCount > 50, "large search rendered progressively in bounded batches");
+        Check(vm.CurrentReport!.Results.Count == 10_000 && vm.CurrentReport.Status.Contains("search stopped"), "line-limited report remains bounded and explicitly incomplete");
         Console.WriteLine($"MEASURE 10k: first append={vm.FirstBatchMilliseconds:F1} ms, first headless frame={firstFrame:F1} ms, total+layout={elapsed.Elapsed.TotalMilliseconds:F1} ms, batches={vm.BatchCount}, max append={vm.MaxAppendMilliseconds:F2} ms, text={vm.Results.Document.TextLength:N0} UTF-16, managed delta={GC.GetTotalMemory(true) - before:N0} bytes, process working set={Environment.WorkingSet:N0} bytes; 16ms heartbeat ticks={heartbeatCount}, max gap={maxTickGap:F1} ms");
+        // Compare full text after memory sampling: the assertion itself creates
+        // full-document strings that production incremental rendering never needs.
+        AssertReportMatchesDocument(vm);
         Check(firstFrame is not null && heartbeatCount > 0, "render and timer work run while search streams");
         var editor = window.FindControl<TextEditor>("ResultsEditor")!;
         var scrolling = Stopwatch.StartNew();
@@ -282,7 +291,9 @@ internal static partial class Tests
         Render(window);
         Check(vm.Status.StartsWith("Display limit reached") && vm.Results.Document.TextLength is > 1_900_000 and < 2_010_000,
             "approximately 2M-character budget retained");
+        Check(vm.CurrentReport!.Results.Count < 130 && vm.CurrentReport.Results.All(line => line.Text.Length == 16_000), "character-limited report retains only displayed raw lines");
         Console.WriteLine($"MEASURE near 2M: first append={vm.FirstBatchMilliseconds:F1} ms, max append={vm.MaxAppendMilliseconds:F2} ms, text={vm.Results.Document.TextLength:N0} UTF-16, working set={Environment.WorkingSet:N0} bytes");
+        AssertReportMatchesDocument(vm);
         editor.ScrollToLine(2);
         Render(window);
         // AvaloniaEdit 12.0.0's ScrollToHorizontalOffset is a stub. Exercise
@@ -302,9 +313,19 @@ internal static partial class Tests
         Directory.Delete(directory, recursive: true);
     }
 
-    private static async Task<int> FakeRg(string mode)
+    private static async Task<int> FakeRg(string mode, string[] arguments)
     {
         File.WriteAllText(Path.Combine(Root, mode + ".pid"), Environment.ProcessId.ToString());
+        if (mode is "capture" or "partial-error" or "warning")
+        {
+            File.WriteAllText(Path.Combine(Root, mode + ".args.json"), JsonSerializer.Serialize(arguments));
+            Console.WriteLine(JsonSerializer.Serialize(new { type = "match", data = new { path = new { text = "fixture.txt" }, line_number = 1,
+                lines = new { text = "needle\n" }, submatches = new[] { new { start = 0, end = 6 } } } }));
+            if (mode == "partial-error") { Console.Error.WriteLine("simulated partial failure"); return 2; }
+            if (mode == "warning") Console.Error.WriteLine("simulated warning");
+            Console.WriteLine("{\"type\":\"summary\",\"data\":{}}");
+            return 0;
+        }
         if (mode == "descendant")
         {
             await Task.Delay(Timeout.Infinite);

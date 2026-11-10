@@ -17,7 +17,7 @@ public sealed class SearchViewModel : INotifyPropertyChanged
     private int matchingLines;
     private CancellationTokenSource? cancellation;
     private Task activeSearch = Task.CompletedTask;
-    private readonly Func<string?> resolveExecutable;
+    private readonly Func<bool, string?> resolveExecutable;
     private readonly DesktopEnvironment environment;
     private readonly string? initialFolder;
     private readonly Func<string, AppSettings> loadSettings;
@@ -28,11 +28,12 @@ public sealed class SearchViewModel : INotifyPropertyChanged
     private bool closing;
     private IReadOnlyList<string> folderHistory = [];
     private IReadOnlyList<string> patternHistory = [];
+    private SearchReport? currentReport;
 
     public SearchViewModel(string? initialFolder = null) : this(initialFolder,
-        () => ExecutableResolver.ResolveSearchTool(false), DesktopEnvironment.Current()) { }
+        useRga => ExecutableResolver.ResolveSearchTool(useRga), DesktopEnvironment.Current()) { }
 
-    internal SearchViewModel(string? initialFolder, Func<string?> resolveExecutable, DesktopEnvironment environment,
+    internal SearchViewModel(string? initialFolder, Func<bool, string?> resolveExecutable, DesktopEnvironment environment,
         Func<string, AppSettings>? loadSettings = null)
     {
         this.initialFolder = initialFolder;
@@ -43,14 +44,30 @@ public sealed class SearchViewModel : INotifyPropertyChanged
         CancelCommand = new ActionCommand(Cancel, () => IsSearching && !isCancelling);
     }
 
-    public string Folder { get => folder; set => Set(ref folder, value ?? string.Empty); }
-    public string Pattern { get => pattern; set => Set(ref pattern, value ?? string.Empty); }
+    public string Folder { get => folder; set { Set(ref folder, value ?? string.Empty); NotifyPreview(); } }
+    public string Pattern { get => pattern; set { Set(ref pattern, value ?? string.Empty); NotifyPreview(); } }
     public IReadOnlyList<string> FolderHistory => folderHistory;
     public IReadOnlyList<string> PatternHistory => patternHistory;
     public string Status { get => status; private set => Set(ref status, value); }
     public int MatchingLines { get => matchingLines; private set => Set(ref matchingLines, value); }
     public bool IsSearching => isSearching;
     public bool CanSearch => initialized && !isSearching && !closing;
+    public bool CanChangeView => initialized && !closing;
+    public bool CanChooseSort => CanSearch && SortEnabled;
+    public IReadOnlyList<string> SortFields { get; } = ["path", "modified", "accessed", "created"];
+    public IReadOnlyList<string> SortOrders { get; } = ["Ascending", "Descending"];
+    public int BeforeContext { get => settings.BeforeContext; set => ChangeOption(s => s.BeforeContext, (s, v) => s.BeforeContext = v, Math.Clamp(value, 0, 100)); }
+    public int AfterContext { get => settings.AfterContext; set => ChangeOption(s => s.AfterContext, (s, v) => s.AfterContext = v, Math.Clamp(value, 0, 100)); }
+    public bool UseRipgrepAll { get => settings.UseRipgrepAll; set => ChangeOption(s => s.UseRipgrepAll, (s, v) => s.UseRipgrepAll = v, value); }
+    public bool SortEnabled { get => settings.SortEnabled; set => ChangeOption(s => s.SortEnabled, (s, v) => s.SortEnabled = v, value); }
+    public string SortBy { get => settings.SortBy; set => ChangeOption(s => s.SortBy, (s, v) => s.SortBy = v, SortFields.Contains(value) ? value : "path"); }
+    public bool SortDescending { get => settings.SortDescending; set => ChangeOption(s => s.SortDescending, (s, v) => s.SortDescending = v, value); }
+    public int SortOrderIndex { get => SortDescending ? 1 : 0; set => SortDescending = value == 1; }
+    public bool ShowSearchOptions { get => settings.ShowSearchOptions; set => ChangeOption(s => s.ShowSearchOptions, (s, v) => s.ShowSearchOptions = v, value); }
+    public bool ShowCommand { get => settings.ShowCommand; set => ChangeOption(s => s.ShowCommand, (s, v) => s.ShowCommand = v, value); }
+    public string CommandLabel => UseRipgrepAll ? "rga command:" : "rg command:";
+    public string CommandPreview => SearchCommandFormatter.Format(UseRipgrepAll ? "rga" : "rg", BuildArguments(PreviewFolder(), Pattern));
+    public SearchReport? CurrentReport { get => currentReport; private set => Set(ref currentReport, value); }
     public ResultsDocument Results { get; } = new();
     public ICommand SearchCommand { get; }
     public ICommand CancelCommand { get; }
@@ -69,14 +86,16 @@ public sealed class SearchViewModel : INotifyPropertyChanged
         {
             AppSettings preferences = loadSettings(environment.SettingsFile)
                 .WithRecentSearch(null, null, environment.FolderComparer);
-            // Match WinForms' UI normalization without changing the shared store
-            // or activating Phase 5.3 options in the current search pipeline.
+            // Match WinForms' UI normalization without changing the shared store.
             preferences.BeforeContext = Math.Clamp(preferences.BeforeContext, 0, 100);
             preferences.AfterContext = Math.Clamp(preferences.AfterContext, 0, 100);
             if (preferences.SortBy is not ("path" or "modified" or "accessed" or "created")) preferences.SortBy = "path";
             return (Settings: preferences, Folder: environment.InitialFolder(initialFolder, preferences.FolderHistory));
         });
         settings = loaded.Settings;
+        foreach (string name in new[] { nameof(BeforeContext), nameof(AfterContext), nameof(UseRipgrepAll), nameof(SortEnabled),
+            nameof(SortBy), nameof(SortDescending), nameof(SortOrderIndex), nameof(ShowSearchOptions), nameof(ShowCommand) })
+            PropertyChanged?.Invoke(this, new(name));
         Folder = loaded.Folder;
         RefreshHistories();
         // Like WinForms, make an explicit startup folder available in the list
@@ -90,6 +109,39 @@ public sealed class SearchViewModel : INotifyPropertyChanged
         initialized = true;
         Status = "Choose a folder and enter a search pattern.";
         RefreshCommands();
+    }
+
+    private void ChangeOption<T>(Func<AppSettings, T> get, Action<AppSettings, T> put, T value,
+        [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(get(settings), value)) return;
+        // Pending saves own their snapshots. Never mutate an instance already
+        // handed to a settings writer, including when a View item changes mid-search.
+        settings = settings.WithRecentSearch(null, null, environment.FolderComparer);
+        put(settings, value);
+        PropertyChanged?.Invoke(this, new(name));
+        if (name == nameof(SortDescending)) PropertyChanged?.Invoke(this, new(nameof(SortOrderIndex)));
+        PropertyChanged?.Invoke(this, new(nameof(CanChooseSort)));
+        NotifyPreview();
+        if (initialized) _ = SaveAsync();
+    }
+
+    private string PreviewFolder()
+    {
+        if (string.IsNullOrWhiteSpace(Folder)) return string.Empty;
+        try { return environment.ResolveFolder(Folder); }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+        { return environment.FolderInput(Folder); }
+    }
+
+    private List<string> BuildArguments(string searchFolder, string searchPattern) =>
+        SearchRunner.BuildArguments(searchPattern, searchFolder, BeforeContext, AfterContext,
+            SortEnabled ? SortBy : null, SortDescending);
+
+    private void NotifyPreview()
+    {
+        PropertyChanged?.Invoke(this, new(nameof(CommandPreview)));
+        PropertyChanged?.Invoke(this, new(nameof(CommandLabel)));
     }
 
     private void RefreshHistories()
@@ -160,6 +212,7 @@ public sealed class SearchViewModel : INotifyPropertyChanged
         string absoluteFolder;
         string? executable;
         string searchPattern = Pattern;
+        bool useRga = UseRipgrepAll;
         try
         {
             if (string.IsNullOrWhiteSpace(Folder))
@@ -178,10 +231,12 @@ public sealed class SearchViewModel : INotifyPropertyChanged
                 Status = "Enter a search word, phrase, or regular expression.";
                 return;
             }
-            executable = resolveExecutable();
+            executable = resolveExecutable(useRga);
             if (executable is null)
             {
-                Status = "ripgrep (rg) was not found on PATH. Install rg and launch from a terminal whose PATH includes it.";
+                Status = useRga
+                    ? "ripgrep-all (rga) was not found on PATH. Install rga and add it to PATH. Document formats may also require external converters."
+                    : "ripgrep (rg) was not found on PATH. Install rg and launch from a terminal whose PATH includes it.";
                 return;
             }
         }
@@ -191,22 +246,28 @@ public sealed class SearchViewModel : INotifyPropertyChanged
             return;
         }
 
+        // Capture one actual argument list before callbacks/settings/UI state can
+        // change. The preview/report string is display-only; execution uses this list.
+        var arguments = BuildArguments(absoluteFolder, searchPattern);
+        var report = new SearchReport(absoluteFolder, searchPattern,
+            SearchCommandFormatter.Format(useRga ? "rga" : "rg", arguments), DateTimeOffset.Now);
         _ = SaveAsync();
         RefreshHistories();
 
         using var source = new CancellationTokenSource();
         cancellation = source;
         SetSearching(true);
+        CurrentReport = report;
         Results.Clear();
         MatchingLines = 0;
         BatchCount = 0;
         MaxAppendMilliseconds = 0;
         FirstBatchMilliseconds = null;
         Status = "Searching…";
+        report.Status = Status;
         var elapsed = Stopwatch.StartNew();
         var channel = Channel.CreateBounded<IReadOnlyList<SearchResultLine>>(
             new BoundedChannelOptions(2) { SingleReader = true, SingleWriter = true });
-        var arguments = SearchRunner.BuildArguments(searchPattern, absoluteFolder, 0, 0, null, false);
         Task<SearchOutcome> runner = Task.Run(() => SearchRunner.RunAsync(executable, arguments,
             absoluteFolder, channel.Writer, source.Token));
 
@@ -221,18 +282,22 @@ public sealed class SearchViewModel : INotifyPropertyChanged
                 await foreach (var batch in channel.Reader.ReadAllAsync(source.Token))
                 {
                     source.Token.ThrowIfCancellationRequested();
-                    ResultBatch formatted = ResultBatch.Format(batch.SelectMany(formatter.Format));
+                    ResultSpan[] spans = batch.SelectMany(formatter.Format).ToArray();
+                    ResultBatch formatted = ResultBatch.Format(spans);
                     int matches = batch.Count(line => line.IsMatch);
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         if (source.IsCancellationRequested) return;
                         var append = Stopwatch.StartNew();
                         Results.Append(formatted);
+                        report.Results.AddRange(batch);
+                        report.Spans.AddRange(spans);
                         MaxAppendMilliseconds = Math.Max(MaxAppendMilliseconds, append.Elapsed.TotalMilliseconds);
                         FirstBatchMilliseconds ??= elapsed.Elapsed.TotalMilliseconds;
                         BatchCount++;
                         MatchingLines += matches;
                         Status = $"Searching… {MatchingLines:N0} matching line(s) shown.";
+                        report.Status = Status;
                     }, DispatcherPriority.Background);
                 }
             });
@@ -258,15 +323,20 @@ public sealed class SearchViewModel : INotifyPropertyChanged
         try
         {
             Status = DescribeOutcome(outcome, MatchingLines);
+            report.Status = Status;
             var diagnostics = new List<ResultSpan>();
-            if (outcome.Completion == SearchCompletion.Completed && MatchingLines == 0)
-                diagnostics.Add(new ResultSpan("No matches found.\r\n", ResultColor.White, ResultTextStyle.Regular));
+            if (outcome.Completion == SearchCompletion.Completed && report.Results.Count == 0)
+                diagnostics.Add(new ResultSpan("No matches found.", ResultColor.White, ResultTextStyle.Regular));
             if (!string.IsNullOrWhiteSpace(outcome.Reason))
                 diagnostics.Add(new ResultSpan($"\r\n{outcome.Reason}\r\n", ResultColor.Gray, ResultTextStyle.Regular));
             if (!string.IsNullOrWhiteSpace(outcome.Diagnostics))
                 diagnostics.Add(new ResultSpan($"\r\nDiagnostics:\r\n{outcome.Diagnostics.TrimEnd()}\r\n",
                     ResultColor.Gray, ResultTextStyle.Regular));
-            if (diagnostics.Count > 0) Results.Append(ResultBatch.Format(diagnostics));
+            if (diagnostics.Count > 0)
+            {
+                Results.Append(ResultBatch.Format(diagnostics));
+                report.Spans.AddRange(diagnostics);
+            }
         }
         finally
         {
@@ -280,10 +350,11 @@ public sealed class SearchViewModel : INotifyPropertyChanged
     {
         string message = outcome.Completion switch
         {
+            SearchCompletion.Completed when count == 0 => "Search completed. No matches found.",
             SearchCompletion.Completed => $"Search completed. {count:N0} matching line(s) found.",
             SearchCompletion.Cancelled => $"Search cancelled. {count:N0} matching line(s) shown; results are incomplete.",
             SearchCompletion.Limited => $"Display limit reached. {count:N0} matching line(s) shown; search stopped.",
-            _ => $"Search failed. {count:N0} matching line(s) shown; results may be incomplete."
+            _ => $"Search failed{(outcome.ExitCode is null ? "" : $" with exit code {outcome.ExitCode}")}. {count:N0} matching line(s) shown; results may be incomplete."
         };
         return outcome.Completion == SearchCompletion.Completed && !string.IsNullOrWhiteSpace(outcome.Diagnostics)
             ? message + " Warnings reported; see results." : message;
@@ -299,6 +370,8 @@ public sealed class SearchViewModel : INotifyPropertyChanged
     private void RefreshCommands()
     {
         PropertyChanged?.Invoke(this, new(nameof(CanSearch)));
+        PropertyChanged?.Invoke(this, new(nameof(CanChangeView)));
+        PropertyChanged?.Invoke(this, new(nameof(CanChooseSort)));
         ((ActionCommand)SearchCommand).Refresh();
         ((ActionCommand)CancelCommand).Refresh();
     }
